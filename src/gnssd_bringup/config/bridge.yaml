@@ -1,0 +1,45 @@
+# ros_gz_bridge configuration: which topics cross between Gazebo and ROS 2.
+#
+# The Gazebo-side names are set in the robot URDF (sensor <topic>,
+# DiffDrive <topic>/<odom_topic>, JointStatePublisher <topic>), so both sides
+# use the same names. Frame IDs are set there too (gz_frame_id, DiffDrive
+# frame_id/child_frame_id), so no relay node is needed.
+#
+# Deliberately NOT bridged: the DiffDrive TF topic. odom -> base_link is
+# published only by the EKF (see CLAUDE.md).
+
+- ros_topic_name: /clock
+  gz_topic_name: /clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /scan
+  gz_topic_name: /scan
+  ros_type_name: sensor_msgs/msg/LaserScan
+  gz_type_name: gz.msgs.LaserScan
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /imu
+  gz_topic_name: /imu
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /odom_raw
+  gz_topic_name: /odom_raw
+  ros_type_name: nav_msgs/msg/Odometry
+  gz_type_name: gz.msgs.Odometry
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /joint_states
+  gz_topic_name: /joint_states
+  ros_type_name: sensor_msgs/msg/JointState
+  gz_type_name: gz.msgs.Model
+  direction: GZ_TO_ROS
+
+- ros_topic_name: /cmd_vel
+  gz_topic_name: /cmd_vel
+  ros_type_name: geometry_msgs/msg/Twist
+  gz_type_name: gz.msgs.Twist
+  direction: ROS_TO_GZ

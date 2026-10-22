@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<!--
+  All physical and sensor parameters of the robot in one place.
+
+  The values describe a small indoor differential-drive robot of the
+  TurtleBot class (footprint about 0.3 m). Units are SI: metres, kilograms,
+  radians, seconds. The same table is reproduced in docs/progress.md (Step 1)
+  so that it can be cited in the thesis.
+
+  Coordinate convention (REP 103): x forward, y left, z up.
+  base_link sits in the middle of the wheel axle, at axle height.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================== Chassis ===================== -->
+  <xacro:property name="chassis_length" value="0.28"/>
+  <xacro:property name="chassis_width"  value="0.22"/>
+  <xacro:property name="chassis_height" value="0.10"/>
+  <xacro:property name="chassis_mass"   value="2.0"/>
+  <!-- Chassis centre relative to base_link. It is shifted backwards so that
+       the centre of mass lies between the wheel axle and the rear caster;
+       otherwise the robot would tip forward onto its nose. -->
+  <xacro:property name="chassis_x_offset" value="-0.04"/>
+  <xacro:property name="chassis_z_offset" value="0.04"/>
+
+  <!-- ===================== Drive wheels ===================== -->
+  <xacro:property name="wheel_radius"     value="0.035"/>
+  <xacro:property name="wheel_width"      value="0.025"/>
+  <xacro:property name="wheel_mass"       value="0.15"/>
+  <!-- Distance between the centres of the two wheels (track width). -->
+  <xacro:property name="wheel_separation" value="0.26"/>
+
+  <!-- ===================== Rear caster ===================== -->
+  <xacro:property name="caster_radius"   value="0.015"/>
+  <xacro:property name="caster_mass"     value="0.05"/>
+  <xacro:property name="caster_x_offset" value="-0.11"/>
+  <!-- The caster must touch the ground together with the wheels:
+       its centre is (wheel_radius - caster_radius) below the axle. -->
+  <xacro:property name="caster_z_offset" value="${caster_radius - wheel_radius}"/>
+
+  <!-- ===================== 2D lidar ===================== -->
+  <!-- Body roughly the size of an RPLIDAR A1, mounted on top of the chassis. -->
+  <xacro:property name="lidar_radius"   value="0.035"/>
+  <xacro:property name="lidar_height"   value="0.045"/>
+  <xacro:property name="lidar_mass"     value="0.17"/>
+  <xacro:property name="lidar_x_offset" value="0.0"/>
+  <xacro:property name="lidar_z_offset"
+                  value="${chassis_z_offset + chassis_height / 2 + lidar_height / 2}"/>
+
+  <xacro:property name="lidar_update_rate"  value="10"/>     <!-- Hz -->
+  <xacro:property name="lidar_samples"      value="360"/>    <!-- one beam per degree -->
+  <xacro:property name="lidar_range_min"    value="0.12"/>   <!-- m -->
+  <xacro:property name="lidar_range_max"    value="12.0"/>   <!-- m -->
+  <xacro:property name="lidar_noise_stddev" value="0.01"/>   <!-- m, gaussian range noise -->
+
+  <!-- ===================== IMU ===================== -->
+  <xacro:property name="imu_size"     value="0.02"/>
+  <xacro:property name="imu_mass"     value="0.01"/>
+  <xacro:property name="imu_x_offset" value="0.0"/>
+  <xacro:property name="imu_z_offset" value="0.02"/>
+  <xacro:property name="imu_update_rate" value="100"/>   <!-- Hz -->
+
+  <!-- PLACEHOLDER noise values. They will be replaced with numbers taken
+       from the datasheet of the real IMU. In Gazebo the bias is drawn once
+       at start-up from N(bias_mean, bias_stddev) and then stays constant. -->
+  <xacro:property name="imu_gyro_noise_stddev"  value="0.005"/>    <!-- rad/s -->
+  <xacro:property name="imu_gyro_bias_mean"     value="0.0005"/>   <!-- rad/s -->
+  <xacro:property name="imu_gyro_bias_stddev"   value="0.0001"/>   <!-- rad/s -->
+  <xacro:property name="imu_accel_noise_stddev" value="0.02"/>     <!-- m/s^2 -->
+  <xacro:property name="imu_accel_bias_mean"    value="0.01"/>     <!-- m/s^2 -->
+  <xacro:property name="imu_accel_bias_stddev"  value="0.001"/>    <!-- m/s^2 -->
+
+  <!-- ===================== Drive controller ===================== -->
+  <xacro:property name="odom_publish_rate" value="50"/>   <!-- Hz, /odom_raw -->
+
+</robot>

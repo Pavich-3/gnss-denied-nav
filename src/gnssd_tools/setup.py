@@ -11,12 +11,15 @@ setup(
         ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='Pavlo Baranchuk',
     maintainer_email='pavlobaranchuk03072004@gmail.com',
     description='Project nodes and evaluation scripts',
     license='Apache-2.0',
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'odom_noise_node = gnssd_tools.odom_noise_node:main',
+        ],
     },
 )

@@ -1,0 +1,35 @@
+# Parameters of odom_noise_node (gnssd_tools).
+#
+# Model of the measured velocities:
+#   v_measured = v_true * (1 + linear_scale_error)  + N(0, linear_noise_stddev)
+#   w_measured = w_true * (1 + angular_scale_error) + N(0, angular_noise_stddev)
+# The pose in /odom is then integrated from v_measured and w_measured.
+
+odom_noise_node:
+  ros__parameters:
+    # false -> velocities pass through unchanged (still integrated):
+    # the "no noise" baseline. Overridden by the launch argument odom_noise.
+    enabled: true
+
+    # Systematic error, constant during one run.
+    # 0.02 means the robot thinks it drove 2 % further than it really did.
+    linear_scale_error: 0.02
+    angular_scale_error: 0.03
+
+    # If true, the two scale errors above are not used directly: each one is
+    # drawn once at start-up, uniformly from [-value, +value], using `seed`.
+    random_scale: false
+
+    # Random error added to every message (odometry arrives at 50 Hz).
+    linear_noise_stddev: 0.02    # m/s
+    angular_noise_stddev: 0.02   # rad/s
+
+    # Below these true speeds the robot is treated as standing still and no
+    # random noise is added, just as real encoders read zero when the wheels
+    # do not turn.
+    standstill_linear_speed: 0.001   # m/s
+    standstill_angular_speed: 0.001  # rad/s
+
+    # Seed of the random generator: the same seed gives the same noise
+    # sequence, so a run can be repeated exactly.
+    seed: 42

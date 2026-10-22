@@ -1,0 +1,154 @@
+<?xml version="1.0"?>
+<!--
+  Test world: one closed indoor room, 10 m x 8 m, walls 1 m high.
+
+  Top view (x to the right, y up, origin in the middle of the room):
+
+     y=+4  +------------------------------------------+
+           |                 |                        |
+           |   [box]         | (wall stub)    [pillar]|
+           |                 |                        |
+           |        +------------------------+        |
+           |        |     central island     |        |
+           |        +------------------------+        |
+           |                                          |
+           |  S                                       |
+     y=-4  +------------------------------------------+
+         x=-5                                       x=+5
+
+  The central island makes a closed loop route: the robot starts at S
+  (-3.5, -2.5), drives around the island and comes back to S. That gives
+  SLAM a loop closure. The box, the pillar and the wall stub break the
+  symmetry of the room, so lidar scans from different places look different.
+
+  Everything static is one model with one link: few models = fast simulation.
+-->
+<sdf version="1.9">
+  <world name="room">
+
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Systems that a Gazebo Harmonic world has to load explicitly. -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Renders the gpu_lidar. -->
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <!-- Computes the IMU readings. -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <material>
+            <ambient>0.7 0.7 0.7 1</ambient>
+            <diffuse>0.7 0.7 0.7 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="room">
+      <static>true</static>
+      <link name="walls">
+
+        <!-- Outer walls: 0.15 m thick, centred on the room boundary. -->
+        <collision name="north_wall">
+          <pose>0 4 0.5 0 0 0</pose>
+          <geometry><box><size>10.15 0.15 1</size></box></geometry>
+        </collision>
+        <visual name="north_wall">
+          <pose>0 4 0.5 0 0 0</pose>
+          <geometry><box><size>10.15 0.15 1</size></box></geometry>
+        </visual>
+
+        <collision name="south_wall">
+          <pose>0 -4 0.5 0 0 0</pose>
+          <geometry><box><size>10.15 0.15 1</size></box></geometry>
+        </collision>
+        <visual name="south_wall">
+          <pose>0 -4 0.5 0 0 0</pose>
+          <geometry><box><size>10.15 0.15 1</size></box></geometry>
+        </visual>
+
+        <collision name="east_wall">
+          <pose>5 0 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 8 1</size></box></geometry>
+        </collision>
+        <visual name="east_wall">
+          <pose>5 0 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 8 1</size></box></geometry>
+        </visual>
+
+        <collision name="west_wall">
+          <pose>-5 0 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 8 1</size></box></geometry>
+        </collision>
+        <visual name="west_wall">
+          <pose>-5 0 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 8 1</size></box></geometry>
+        </visual>
+
+        <!-- Central island, 4 m x 1.6 m: the robot drives around it. -->
+        <collision name="central_island">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry><box><size>4 1.6 1</size></box></geometry>
+        </collision>
+        <visual name="central_island">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry><box><size>4 1.6 1</size></box></geometry>
+        </visual>
+
+        <!-- Wall stub hanging from the north wall (from y=4 down to y=2.5). -->
+        <collision name="wall_stub">
+          <pose>1 3.25 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 1.5 1</size></box></geometry>
+        </collision>
+        <visual name="wall_stub">
+          <pose>1 3.25 0.5 0 0 0</pose>
+          <geometry><box><size>0.15 1.5 1</size></box></geometry>
+        </visual>
+
+        <!-- Two small obstacles that make the room asymmetric. -->
+        <collision name="box">
+          <pose>-3.5 2.5 0.25 0 0 0.4</pose>
+          <geometry><box><size>0.6 0.3 0.5</size></box></geometry>
+        </collision>
+        <visual name="box">
+          <pose>-3.5 2.5 0.25 0 0 0.4</pose>
+          <geometry><box><size>0.6 0.3 0.5</size></box></geometry>
+        </visual>
+
+        <collision name="pillar">
+          <pose>3.5 2.5 0.5 0 0 0</pose>
+          <geometry><cylinder><radius>0.2</radius><length>1</length></cylinder></geometry>
+        </collision>
+        <visual name="pillar">
+          <pose>3.5 2.5 0.5 0 0 0</pose>
+          <geometry><cylinder><radius>0.2</radius><length>1</length></cylinder></geometry>
+        </visual>
+
+      </link>
+    </model>
+
+  </world>
+</sdf>

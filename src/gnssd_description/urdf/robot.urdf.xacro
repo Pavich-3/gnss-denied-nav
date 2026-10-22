@@ -1,0 +1,279 @@
+<?xml version="1.0"?>
+<!--
+  Differential-drive robot for the GNSS-denied localization project.
+
+  Link tree (all joints fixed except the two wheels):
+
+    base_link                 middle of the wheel axle
+    ├── chassis_link          box body
+    ├── left_wheel_link       continuous joint
+    ├── right_wheel_link      continuous joint
+    ├── caster_link           frictionless ball at the back
+    ├── lidar_link            2D lidar on top
+    └── imu_link              IMU inside the body
+
+  Gazebo Harmonic plugins at the end of the file:
+    DiffDrive            /cmd_vel in, /odom_raw out (its TF is NOT used, see CLAUDE.md)
+    JointStatePublisher  /joint_states, so robot_state_publisher can move the wheels
+
+  All numbers come from robot_params.xacro.
+-->
+<robot name="gnssd_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find gnssd_description)/urdf/robot_params.xacro"/>
+
+  <!-- ===================== Helpers ===================== -->
+
+  <!-- Inertia tensors of simple solid shapes (standard textbook formulas). -->
+  <xacro:macro name="box_inertial" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${mass / 12 * (y*y + z*z)}" ixy="0" ixz="0"
+               iyy="${mass / 12 * (x*x + z*z)}" iyz="0"
+               izz="${mass / 12 * (x*x + y*y)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- Cylinder whose axis is the link's z axis. -->
+  <xacro:macro name="cylinder_inertial" params="mass radius length">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${mass / 12 * (3*radius*radius + length*length)}" ixy="0" ixz="0"
+               iyy="${mass / 12 * (3*radius*radius + length*length)}" iyz="0"
+               izz="${mass / 2 * radius*radius}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="sphere_inertial" params="mass radius">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${2 / 5 * mass * radius*radius}" ixy="0" ixz="0"
+               iyy="${2 / 5 * mass * radius*radius}" iyz="0"
+               izz="${2 / 5 * mass * radius*radius}"/>
+    </inertial>
+  </xacro:macro>
+
+  <material name="body_grey"><color rgba="0.6 0.6 0.65 1"/></material>
+  <material name="wheel_black"><color rgba="0.1 0.1 0.1 1"/></material>
+  <material name="sensor_blue"><color rgba="0.2 0.3 0.8 1"/></material>
+
+  <!-- ===================== Links ===================== -->
+
+  <!-- base_link has no geometry or mass of its own. Keeping the root link
+       massless avoids the KDL warning in robot_state_publisher; Gazebo merges
+       the chassis mass into it anyway (fixed-joint lumping). -->
+  <link name="base_link"/>
+
+  <link name="chassis_link">
+    <visual>
+      <geometry><box size="${chassis_length} ${chassis_width} ${chassis_height}"/></geometry>
+      <material name="body_grey"/>
+    </visual>
+    <collision>
+      <geometry><box size="${chassis_length} ${chassis_width} ${chassis_height}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="${chassis_mass}"
+                        x="${chassis_length}" y="${chassis_width}" z="${chassis_height}"/>
+  </link>
+
+  <joint name="chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis_link"/>
+    <origin xyz="${chassis_x_offset} 0 ${chassis_z_offset}"/>
+  </joint>
+
+  <!-- One wheel. side_sign = +1 for the left wheel (positive y), -1 for the right.
+       The joint frame is rolled by -90 deg so that the wheel cylinder (built
+       along z) lies along the y axis. Positive rotation then moves the robot
+       forward for both wheels, which is what DiffDrive expects. -->
+  <xacro:macro name="wheel" params="side side_sign">
+    <link name="${side}_wheel_link">
+      <visual>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="${wheel_mass}" radius="${wheel_radius}"
+                               length="${wheel_width}"/>
+    </link>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${side}_wheel_link"/>
+      <origin xyz="0 ${side_sign * wheel_separation / 2} 0" rpy="${-pi / 2} 0 0"/>
+      <axis xyz="0 0 1"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel side="left" side_sign="1"/>
+  <xacro:wheel side="right" side_sign="-1"/>
+
+  <link name="caster_link">
+    <visual>
+      <geometry><sphere radius="${caster_radius}"/></geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="${caster_radius}"/></geometry>
+    </collision>
+    <xacro:sphere_inertial mass="${caster_mass}" radius="${caster_radius}"/>
+  </link>
+
+  <joint name="caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="caster_link"/>
+    <origin xyz="${caster_x_offset} 0 ${caster_z_offset}"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual>
+      <geometry><cylinder radius="${lidar_radius}" length="${lidar_height}"/></geometry>
+      <material name="sensor_blue"/>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="${lidar_radius}" length="${lidar_height}"/></geometry>
+    </collision>
+    <xacro:cylinder_inertial mass="${lidar_mass}" radius="${lidar_radius}"
+                             length="${lidar_height}"/>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="${lidar_x_offset} 0 ${lidar_z_offset}"/>
+  </joint>
+
+  <link name="imu_link">
+    <visual>
+      <geometry><box size="${imu_size} ${imu_size} ${imu_size}"/></geometry>
+      <material name="sensor_blue"/>
+    </visual>
+    <xacro:box_inertial mass="${imu_mass}" x="${imu_size}" y="${imu_size}" z="${imu_size}"/>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="${imu_x_offset} 0 ${imu_z_offset}"/>
+  </joint>
+
+  <!-- ===================== Gazebo: contact properties ===================== -->
+
+  <!-- The caster is a passive ball: no friction, so it just slides along. -->
+  <gazebo reference="caster_link">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+
+  <!-- ===================== Gazebo: sensors ===================== -->
+
+  <!-- 2D lidar, 360 deg, one beam per degree.
+       max_angle stops one step short of +pi: with 360 samples spread over the
+       closed interval [-pi, pi] the first and the last beam would point in
+       the same direction. Ending at pi - 2*pi/360 gives exactly 1 deg spacing.
+       gz_frame_id makes the bridged LaserScan carry frame_id "lidar_link". -->
+  <gazebo reference="lidar_link">
+    <sensor name="lidar" type="gpu_lidar">
+      <topic>scan</topic>
+      <gz_frame_id>lidar_link</gz_frame_id>
+      <update_rate>${lidar_update_rate}</update_rate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>${lidar_samples}</samples>
+            <resolution>1</resolution>
+            <min_angle>${-pi}</min_angle>
+            <max_angle>${pi - 2 * pi / lidar_samples}</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>1</samples>
+            <resolution>1</resolution>
+            <min_angle>0</min_angle>
+            <max_angle>0</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>${lidar_range_min}</min>
+          <max>${lidar_range_max}</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>${lidar_noise_stddev}</stddev>
+        </noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <!-- Noise block shared by the three gyro axes and by the three accelerometer axes. -->
+  <xacro:macro name="imu_axis_noise" params="axis stddev bias_mean bias_stddev">
+    <xacro:element xacro:name="${axis}">
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${stddev}</stddev>
+        <bias_mean>${bias_mean}</bias_mean>
+        <bias_stddev>${bias_stddev}</bias_stddev>
+      </noise>
+    </xacro:element>
+  </xacro:macro>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu" type="imu">
+      <topic>imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <update_rate>${imu_update_rate}</update_rate>
+      <always_on>true</always_on>
+      <imu>
+        <angular_velocity>
+          <xacro:imu_axis_noise axis="x" stddev="${imu_gyro_noise_stddev}"
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+          <xacro:imu_axis_noise axis="y" stddev="${imu_gyro_noise_stddev}"
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+          <xacro:imu_axis_noise axis="z" stddev="${imu_gyro_noise_stddev}"
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+        </angular_velocity>
+        <linear_acceleration>
+          <xacro:imu_axis_noise axis="x" stddev="${imu_accel_noise_stddev}"
+              bias_mean="${imu_accel_bias_mean}" bias_stddev="${imu_accel_bias_stddev}"/>
+          <xacro:imu_axis_noise axis="y" stddev="${imu_accel_noise_stddev}"
+              bias_mean="${imu_accel_bias_mean}" bias_stddev="${imu_accel_bias_stddev}"/>
+          <xacro:imu_axis_noise axis="z" stddev="${imu_accel_noise_stddev}"
+              bias_mean="${imu_accel_bias_mean}" bias_stddev="${imu_accel_bias_stddev}"/>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <!-- ===================== Gazebo: drive and joint states ===================== -->
+
+  <gazebo>
+    <!-- wheel_separation and wheel_radius are the SAME values as the geometry
+         above: the simulated odometry is exact, the error is added later by
+         odom_noise_node. The plugin always publishes a TF message on
+         tf_topic; we give it an explicit name and simply never bridge it,
+         because odom -> base_link belongs to the EKF only. -->
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_separation}</wheel_separation>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <topic>cmd_vel</topic>
+      <odom_topic>odom_raw</odom_topic>
+      <odom_publish_frequency>${odom_publish_rate}</odom_publish_frequency>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_link</child_frame_id>
+      <tf_topic>gz_diff_drive_tf_not_bridged</tf_topic>
+    </plugin>
+
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>
+  </gazebo>
+
+</robot>
