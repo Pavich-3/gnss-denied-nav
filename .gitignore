@@ -1,0 +1,25 @@
+# colcon
+build/
+install/
+log/
+
+# recordings and generated maps
+bags/
+*.db3
+*.mcap
+maps/*.posegraph
+maps/*.data
+
+# evo / evaluation output
+results/
+*.zip
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# editors
+.vscode/
+.idea/
+*.swp
