@@ -4,7 +4,7 @@
   <name>gnssd_tools</name>
   <version>0.0.1</version>
   <description>Project nodes (sensor_monitor_node, map_manager_node, odometry noise) and evaluation scripts</description>
-  <maintainer email="pavlo.baranchuk@goreel.tech">Pavlo Baranchuk</maintainer>
+  <maintainer email="pavlobaranchuk03072004@gmail.com">Pavlo Baranchuk</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>

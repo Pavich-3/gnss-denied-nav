@@ -13,7 +13,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Pavlo Baranchuk',
-    maintainer_email='pavlo.baranchuk@goreel.tech',
+    maintainer_email='pavlobaranchuk03072004@gmail.com',
     description='Project nodes and evaluation scripts',
     license='Apache-2.0',
     entry_points={
