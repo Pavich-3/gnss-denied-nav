@@ -50,8 +50,16 @@ if [ ! -f "$INDEX" ]; then
   echo "bag,world,scenario,laps,seed,commit,duration_s,extra_args" > "$INDEX"
 fi
 
-# One lap takes ~107 s; allow generous extra time for start-up and shutdown.
-TIMEOUT=$((LAPS * 150 + 180))
+# Time limit of one run. A lap takes (lap length / 0.2 m/s):
+#   room       21.5 m  ->  ~107 s
+#   warehouse 178.6 m  ->  ~900 s
+# plus generous margins for start-up and shutdown.
+case "$WORLD" in
+  room) LAP_SECONDS=150 ;;
+  warehouse) LAP_SECONDS=1100 ;;
+  *) echo "Unknown world '$WORLD' (room or warehouse)"; exit 1 ;;
+esac
+TIMEOUT=$((LAPS * LAP_SECONDS + 180))
 
 for SEED in $(seq "$SEED_FROM" "$SEED_TO"); do
   echo "=== $WORLD / $SCENARIO, laps $LAPS, seed $SEED, $(date +%T)"
