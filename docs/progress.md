@@ -740,3 +740,138 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 2 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 4b — Second world: warehouse (2026-10-24)
+
+### Why
+In the 10 x 8 m room a uniform odometry scale error only scales the trajectory about the start,
+so the base-layer error stays bounded by ~k x room size and the base layer meets NFR-1 (0.2 m)
+even without correction. A larger world with a route that goes far from the start shows how the
+base-layer error grows with distance, and tests scan matching in long, repetitive aisles (a known
+weak case for 2D lidar SLAM). The system configuration (ekf.yaml, slam_toolbox.yaml, noise
+models, URDF, bridge) is unchanged since `5ad701c` (`git diff 5ad701c` on these files is empty).
+
+Code commits: `2a9e94a` (warehouse world, route, world:= selection, error_vs_distance.py,
+RViz fixed frame odom without SLAM), `9023ec4` (run_batch.sh per-world time limit). All runs at
+the clean tree `9023ec4`, `allow_dirty: false`.
+
+### World `worlds/warehouse.sdf`
+Interior 30 x 20 m (x -2..28, y -2..18), walls 2.5 m. Start = world origin in the south main
+aisle, facing +x. One static model, one link, 33 elements (`gz sdf -k`: Valid):
+- 4 rack rows A–D (y 1.5–2.7, 5.1–6.3, 8.7–9.9, 12.3–13.5), each x 3–12.4 and 14.6–24, solid
+  blocks 1.2 m high (the bottom pallet level is what the lidar at 0.1475 m sees); aisles 2.4 m;
+  cross aisles at x -2..3, 12.4..14.6 (middle), 24..28.
+- Rows B and C: identical 2.2 m pallet blocks with 0.2 m gaps -> the aisle between them
+  (y 6.3..8.7, 21 m long) is repetitive on purpose. Rows A and D are solid with one irregular gap
+  each (A: x 7.0–7.6, D: x 18.5–19.5).
+- Distinct features: office box (NE corner), three dock platforms on the north wall, two columns
+  in the middle cross aisle, a pallet stack near the start. Grey materials; same systems as room.sdf.
+- Collision/visual names carry `_collision` / `_visual` suffixes (strict SDF check requires unique names).
+
+### Route `config/route_warehouse.yaml`
+One lap, 21 waypoints, 178.6 m: south main aisle east -> aisle 1 west -> aisle 2 (long repetitive)
+east -> aisle 3 west -> north area east (far side, 29.7 m from the start) -> east cross aisle south
+-> south main aisle west back to the start. Corners cut at 45 deg (0.5 m). Smallest distance from
+the path centre line to any obstacle 1.20 m (1.06 m from the robot side). Controller parameters
+identical to `route_room.yaml` (renamed from route.yaml; content unchanged).
+`world:=room|warehouse` selects worlds/<world>.sdf and config/route_<world>.yaml; run.launch.py,
+run_info.yaml (`world:`), run_batch.sh (`<world>` first argument) and bags/index.csv (`world`
+column; older rows filled with `room`) carry it. Scenario names: room_loop, room_long, warehouse_loop.
+
+### Simulation check
+```
+$ ros2 launch gnssd_bringup sim.launch.py world:=warehouse gui:=false drive:=true
+$ gz topic -e -t /stats -n 1   (3 samples)   real_time_factor: 0.99997, 0.99993, 1.00085
+$ ros2 topic hz  /scan 9.964   /imu 99.679   /odom 49.783   /odometry/filtered 29.882
+```
+RTF over each recorded run (sim time / wall time of /clock): seed 1 0.9946, seed 2 0.9933,
+seed 3 0.9952.
+Screenshots: Gazebo top view `docs/img/step4b_gazebo_top.png`, RViz with /scan
+`docs/img/step4b_rviz_scan.png` — PENDING (taken by the user; automatic capture got another window).
+
+Known harmless shutdown issue: odom_noise_node sometimes prints a Traceback
+(`RuntimeError: Unable to convert call argument to Python object`) after SIGINT — a subscription
+callback runs while rclpy shuts the context down. Data are not affected (recorder is separate).
+
+Process note: the first batch attempt was stopped by run_batch.sh's time limit (it assumed a room
+lap, 330 s); fixed in `9023ec4`. Seed 3 was refused once by the clean-tree guard because a figure
+had been written into docs/img during the batch; rerun alone at the same commit.
+
+### Verification: warehouse_loop, 1 lap (177.93 m, 890.3 s), odometry noise on
+
+| seed | scale err. lin / ang | gyro bias (est.) | estimate | RMSE | mean | max | heading RMSE | heading max | loop closures |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | -1.46 % / +2.08 % | +4.26e-5 | /odom | 2.731 m | 2.303 m | 4.872 m | 4.31 deg | 10.08 deg | |
+| | | | /odometry/filtered | **0.367 m** | 0.338 m | 0.717 m | 1.34 deg | 2.20 deg | |
+| | | | TF map->base_link | **0.072 m** | 0.065 m | 0.163 m | 0.21 deg | 0.81 deg | 2 (t = 718.9, 753.7 s) |
+| 2 | +1.82 % / +2.69 % | +2.01e-5 | /odom | 3.197 m | 2.711 m | 5.197 m | 3.89 deg | 9.48 deg | |
+| | | | /odometry/filtered | **0.317 m** | 0.281 m | 0.566 m | 0.79 deg | 1.32 deg | |
+| | | | TF map->base_link | **0.071 m** | 0.066 m | 0.131 m | 0.22 deg | 0.67 deg | 2 (t = 722.7, 757.5 s) |
+| 3 | -1.05 % / +0.27 % | -9.51e-5 | /odom | 0.656 m | 0.587 m | 1.133 m | 2.28 deg | 4.31 deg | |
+| | | | /odometry/filtered | **0.598 m** | 0.497 m | 1.378 m | 3.08 deg | 4.89 deg | |
+| | | | TF map->base_link | **0.052 m** | 0.048 m | 0.105 m | 0.19 deg | 0.66 deg | 2 (t = 719.0, 748.8 s) |
+
+map -> odom at the start = identity in all three runs. All loop closures happen when the route
+returns along the east cross aisle (x = 26) to places seen 10 min earlier; the return along the
+south main aisle to the start produced no closure.
+
+Corrected trajectory, consecutive-sample jumps (estimate step minus true step): largest 4.7 cm
+(seed 1, t = 718.6 s), 2.7 cm (seed 2, t = 718.4 s) — both at the first loop closure — and 1.3 cm
+(seed 3). Largest corrected error: 0.163 m at (0.45, 0) t = 891.7 s (seed 1), 0.131 m at (0.05, 0)
+t = 894.3 s (seed 2), 0.103 m at (5.96, 0) t = 863.2 s (seed 3): always on the final stretch of the
+south main aisle.
+
+Figures (seed 1): error vs distance from the start and vs travelled distance
+`docs/img/step4b_error_vs_distance_seed1.png`; trajectories `docs/img/step4b_traj_seed1.png`;
+ATE over time `docs/img/step4b_ape_over_time_seed1.png`; map `docs/img/step4b_map_seed1.png`
+(604 x 406 cells) and `_with_gt.png`.
+
+### Resources (system processes; 8 cores)
+
+| run | process | CPU 1-core mean / max | CPU all cores mean / max | RSS mean / max |
+|---|---|---|---|---|
+| wh s1 | ekf_filter_node | 12.4 / 15.0 % | 1.55 / 1.88 % | 29.3 / 29.3 MiB |
+| | async_slam_toolbox_node | 11.5 / 33.0 % | 1.44 / 4.12 % | 50.4 / 56.6 MiB |
+| | **system** | **23.9 / 45.0 %** | **2.99 / 5.62 %** | **79.7 / 85.9 MiB** |
+| wh s2 | ekf_filter_node | 12.0 / 15.0 % | 1.50 / 1.88 % | 29.2 / 29.3 MiB |
+| | async_slam_toolbox_node | 11.1 / 31.0 % | 1.38 / 3.88 % | 50.5 / 56.9 MiB |
+| | **system** | **23.0 / 43.0 %** | **2.88 / 5.38 %** | **79.8 / 86.2 MiB** |
+| wh s3 | ekf_filter_node | 11.8 / 14.0 % | 1.47 / 1.75 % | 29.1 / 29.1 MiB |
+| | async_slam_toolbox_node | 11.1 / 29.0 % | 1.39 / 3.62 % | 50.7 / 56.7 MiB |
+| | **system** | **22.9 / 41.0 %** | **2.86 / 5.12 %** | **79.8 / 85.8 MiB** |
+
+Max RSS of slam_toolbox: warehouse 56.6–56.9 MiB vs room 50.2–50.8 MiB (2 laps, 42.5 m) and
+55.4 MiB (10 laps, 212 m). Memory follows the size of the pose graph / map rather than the world
+area alone (warehouse map 604 x 406 cells vs 199 x 160).
+
+### Comment
+- **Base layer vs 0.2 m (NFR-1): no longer met.** ATE RMSE 0.32–0.60 m, max 0.57–1.38 m. The error
+  grows with travelled distance (ATE-vs-distance plot: up to 0.67 m mid-route, 0.72 m at the end,
+  not a simple function of |p_true|) — unlike the room, where it stayed below 0.16 m RMSE.
+- **Gyro bias over a long run:** seed 3 (small odometry angular scale error +0.27 %, gyro bias
+  -9.5e-5 rad/s = 4.9 deg in 893 s) ends with a WORSE heading in the EKF (3.08 deg RMSE) than in the
+  raw odometry (2.28 deg): the gyro is weighted 138x more than the odometry yaw rate, so its bias
+  passes straight into the heading. Not tuned (by design of this step); relevant for the later
+  process-noise / covariance tuning.
+- **Correction layer:** 0.05–0.07 m RMSE, max 0.10–0.16 m in all three seeds, 4.5–11.5x better than
+  the base layer. Scan matching holds in the repetitive aisle 2: no jumps there (largest jumps
+  2.7–4.7 cm, at loop closures), no wrong loop closure.
+- **Weak spot found:** the south main aisle (solid wall on one side, solid row A on the other) —
+  all three runs have their largest corrected error (0.10–0.16 m) on the final return along it;
+  scan matching constrains x poorly in a featureless corridor, and the return produced no loop
+  closure near the start. The map shows slightly blurred / doubled edges (a few cm) only at the
+  west wall and the pallet stack, i.e. the places seen at the start and again at the end; no gross
+  map doubling.
+- Corrected error grows slowly while new areas are explored (up to ~0.1 m before the first loop
+  closure at ~720 s), then the closure pulls it down by ~5 cm.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+17 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 2 tests, 0 errors, 0 failures, 0 skipped
+```
