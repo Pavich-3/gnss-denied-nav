@@ -550,6 +550,17 @@ Odometry noise OFF, gyro as configured (`loop`, 2 laps, seed 1, gyro bias est. +
 
 /odom_raw in all runs: 0.0029–0.0032 m (start-up slip, Step 2).
 
+### Erratum (found in Step 4)
+The gyro dynamic bias in this step was mis-scaled: gz-sensors' `dynamic_bias_stddev` is not the
+stationary standard deviation (it is sigma_gz with stationary std sigma_gz * sqrt(tau/2)), so
+1e-5 with tau = 1000 s gave a stationary drift of **2.2e-4 rad/s** instead of 1e-5. Also the bias
+estimator used the smoothed /ground_truth yaw rate (timing-dependent error ~1e-4 rad/s).
+Recomputed with the fixed estimator (heading change, Step 4) for the Step 3 bags:
+loop seed 1: +1.97e-4, seed 2: -4.1e-5, seed 3: -1.20e-4, long seed 1: +2.35e-4,
+noise-off seed 1: +1.99e-4 rad/s. The heading numbers of the EKF in this step therefore include
+an unrealistically large gyro drift; the base-layer results with the corrected IMU model are in
+the Step 4 tables (/odometry/filtered column).
+
 ### Comment: what the gyro does
 - With noisy odometry the EKF reduces the heading error 2.9–37x (loop: 7.9 -> 1.25, 9.9 -> 0.27,
   2.6 -> 0.89 deg; long: 45.5 -> 8.5 deg) and the position error 3.6–5.4x
@@ -571,6 +582,159 @@ $ colcon build --symlink-install
 Summary: 3 packages finished
 $ ament_flake8 src/gnssd_tools
 12 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 2 tests, 0 errors, 0 failures, 0 skipped
+```
+
+## Step 4 — Correction layer (slam_toolbox), resource logging (2026-10-24)
+
+Code commits: `36ffb5b` (slam_toolbox, loop closure monitor, resource logger, tools),
+`5ad701c` (gyro dynamic bias scaling fix, robust gyro bias estimate). All runs below:
+clean tree at `5ad701c`, `allow_dirty: false`.
+
+### slam_toolbox configuration (`config/slam_toolbox.yaml`)
+Copy of `/opt/ros/humble/share/slam_toolbox/config/mapper_params_online_async.yaml`
+(slam_toolbox 2.6.10) with these changes only:
+
+| parameter | package value | project value | reason |
+|---|---|---|---|
+| use_sim_time | (not set) | true | simulation clock, like every node |
+| base_frame | base_footprint | base_link | the robot has no base_footprint frame (REP 105 chain map -> odom -> base_link) |
+| max_laser_range | 20.0 | 12.0 | equals the lidar model range_max |
+
+Unchanged on purpose: mode mapping, odom_frame odom, map_frame map, scan_topic /scan,
+resolution 0.05, do_loop_closing true and all loop thresholds, transform_publish_period 0.02,
+map_update_interval 5.0, minimum_travel_distance 0.5, minimum_travel_heading 0.5.
+Node: `async_slam_toolbox_node` (name slam_toolbox), started by an `OnProcessStart` handler
+once the EKF process has started (it needs odom -> base_link). Launch arg `slam:=true`.
+RViz: fixed frame map, /map display added. Startup warning (harmless):
+`minimum laser range setting (0.0 m) exceeds the capabilities of the used Lidar (0.1 m)`.
+
+### TF
+```
+$ ros2 topic info /tf -v        (sim + EKF + SLAM, driving)
+Publisher count: 4   robot_state_publisher, ekf_filter_node, slam_toolbox, slam_toolbox
+$ ros2 topic info /tf_static -v
+Publisher count: 1   robot_state_publisher
+$ ros2 run tf2_tools view_frames   -> docs/img/step4_tf_frames.pdf
+map -> odom -> base_link -> {caster, chassis, imu, lidar, left_wheel, right_wheel}_link
+```
+(slam_toolbox owns two /tf publishers inside the one node.)
+
+### Corrected estimate
+Defined as TF map -> base_link = slam_toolbox map -> odom composed with EKF odom -> base_link,
+extracted with `tf_to_tum.py <bag> map base_link`. Fix needed in tf_to_tum.py: slam_toolbox
+re-sends map -> odom every 20 ms with the stamp of the last scan (repeated stamps); the script now
+keeps the latest sample per stamp. Check: TF odom -> base_link vs /odometry/filtered still 0.000000 m.
+At the start map -> odom is the identity in every run, e.g.
+`first map->odom: t=0.300  0.000 0.000 0.000  q = (0, 0, 0, 1)`, so map = world at t = 0 and ATE is
+computed without alignment.
+slam_toolbox 2.6.10 also publishes `/pose` (geometry_msgs/PoseWithCovarianceStamped); it is
+recorded, but the TF chain is the reference definition of the corrected estimate.
+
+### Loop closures (`loop_closure_monitor_node` -> `<bag>/loop_closures.yaml`)
+slam_toolbox does not publish or log automatic loop closures (Karto's "Loop closed!" goes only to
+listeners). Karto runs the graph optimisation (CorrectPoses) only on a loop closure, and only an
+optimisation moves already existing vertices. The monitor watches
+/slam_toolbox/graph_visualization (vertex markers, ns "slam_toolbox") and counts an event when a
+known vertex moves by more than 5 mm; it stores the count, the sim time and the largest vertex
+shift. Time resolution = graph publication period (map_update_interval, 5 s).
+Cross-check (2-lap test run with `debug_logging: true`, which prints a Ceres report per
+optimisation): 3 Ceres reports, 3 events detected (t = 126.5, 151.2, 200.8 s).
+
+### Resource logging (`resource_logger_node` -> `<bag>/resources.csv`)
+1 Hz (wall clock), psutil, processes from `config/resource_logger.yaml`:
+`[ekf_filter_node, async_slam_toolbox_node]` (stand processes excluded). Columns:
+wall_time, sim_time, process, pid, cpu_core_pct (100 % = one core), cpu_total_pct
+(/ 8 cores), rss_mb. Summary: `src/gnssd_tools/scripts/summarize_resources.py` (first sample of
+each process skipped: psutil needs one interval).
+
+### Gyro model fix (made during this step)
+gz-sensors' dynamic bias update `b = exp(-dt/tau) b + N(0, sigma_gz^2 tau/2 (1 - exp(-2dt/tau)))`
+has the stationary std sigma_gz * sqrt(tau/2). robot_params.xacro keeps the physical value
+(1e-5 rad/s, ~2 deg/h) and robot.urdf.xacro passes sigma_gz = 1e-5 / sqrt(500) = 4.47e-7 to Gazebo.
+Found because seed 1 gave different biases in Step 3 and Step 4; see the Step 3 erratum.
+`estimate_gyro_bias.py` now uses (integral of gyro - true heading change) / T instead of the
+smoothed /ground_truth yaw rate (two Step 3 runs with the same bias: 1.974e-4 and 1.989e-4).
+With the fix, seed 1 gives +4.08e-5 (loop) and +3.67e-5 (long): the bias follows the seed.
+
+### Verification: ATE (translation, NOT aligned) and heading error vs /ground_truth
+
+Scenario `loop`, 2 laps (42.50 m, 213 s), odometry noise on:
+
+| seed | scale err. lin / ang | gyro bias (est.) | estimate | RMSE | mean | max | heading RMSE | heading max | loop closures |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | -1.46 % / +2.08 % | +4.08e-5 | /odom | 0.477 m | 0.397 m | 1.009 m | 7.89 deg | 13.95 deg | |
+| | | | /odometry/filtered | 0.077 m | 0.070 m | 0.121 m | 0.29 deg | 0.57 deg | |
+| | | | **TF map->base_link** | **0.029 m** | 0.027 m | 0.056 m | 0.36 deg | 1.25 deg | 1 (t = 129.6 s) |
+| 2 | +1.82 % / +2.69 % | +4.50e-5 | /odom | 0.598 m | 0.473 m | 1.406 m | 9.91 deg | 17.70 deg | |
+| | | | /odometry/filtered | 0.105 m | 0.091 m | 0.185 m | 0.42 deg | 0.63 deg | |
+| | | | **TF map->base_link** | **0.019 m** | 0.017 m | 0.038 m | 0.16 deg | 0.71 deg | 0 |
+| 3 | -1.05 % / +0.27 % | -1.25e-4 | /odom | 0.247 m | 0.205 m | 0.465 m | 2.54 deg | 4.67 deg | |
+| | | | /odometry/filtered | 0.071 m | 0.063 m | 0.128 m | 0.90 deg | 1.60 deg | |
+| | | | **TF map->base_link** | **0.018 m** | 0.017 m | 0.034 m | 0.12 deg | 0.72 deg | 2 (t = 146.3, 198.8 s) |
+
+Scenario `long`, 10 laps (212.11 m, 1061 s), seed 1 (scale -1.46 % / +2.08 %, gyro bias +3.67e-5):
+
+| estimate | RMSE | mean | max | heading RMSE | heading max | loop closures |
+|---|---|---|---|---|---|---|
+| /odom | 2.380 m | 2.026 m | 4.926 m | 45.59 deg | 80.89 deg | |
+| /odometry/filtered | 0.156 m | 0.135 m | 0.311 m | 1.71 deg | 2.64 deg | |
+| **TF map->base_link** | **0.012 m** | 0.011 m | 0.045 m | 0.15 deg | 0.77 deg | 24 |
+
+Loop closure times (long, s): 127.8 200.7 230.1 303.8 332.6 376.6 455.1 518.2 547.6 625.7 669.8
+694.3 728.2 752.7 772.3 796.9 836.0 864.6 884.1 908.5 942.9 972.3 991.9 1049.8.
+Largest vertex shift per closure: max 0.020 m, mean 0.010 m (long); 0.020 m (loop seed 1),
+0.009 m (loop seed 3).
+
+Figures (long, seed 1): trajectories of the three estimates + ground truth
+`docs/img/step4_traj_long_seed1.png`; ATE over time, base vs corrected
+`docs/img/step4_ape_over_time_long_seed1.png`; map at the end of the run
+`docs/img/step4_map_long_seed1.png` (and `_with_gt.png` with the ground-truth path).
+
+### Resources (system processes only; 8 cores; "1-core" = 100 % per core)
+
+| run | process | CPU 1-core mean / max | CPU all cores mean / max | RSS mean / max |
+|---|---|---|---|---|
+| loop s1 | ekf_filter_node | 14.3 / 16.0 % | 1.79 / 2.00 % | 28.9 / 29.0 MiB |
+| | async_slam_toolbox_node | 13.2 / 33.0 % | 1.65 / 4.12 % | 46.3 / 50.3 MiB |
+| | **system** | **27.5 / 47.0 %** | **3.43 / 5.88 %** | **75.2 / 79.3 MiB** |
+| loop s2 | ekf_filter_node | 12.0 / 16.0 % | 1.50 / 2.00 % | 29.1 / 29.1 MiB |
+| | async_slam_toolbox_node | 11.1 / 37.1 % | 1.39 / 4.64 % | 45.9 / 50.8 MiB |
+| | **system** | **23.1 / 45.1 %** | **2.88 / 5.64 %** | **75.0 / 79.9 MiB** |
+| loop s3 | ekf_filter_node | 13.7 / 16.0 % | 1.72 / 2.00 % | 29.0 / 29.0 MiB |
+| | async_slam_toolbox_node | 12.8 / 34.0 % | 1.59 / 4.25 % | 45.2 / 50.2 MiB |
+| | **system** | **26.5 / 48.0 %** | **3.31 / 6.00 %** | **74.2 / 79.2 MiB** |
+| long s1 | ekf_filter_node | 14.5 / 17.0 % | 1.81 / 2.12 % | 29.4 / 29.6 MiB |
+| | async_slam_toolbox_node | 14.3 / 40.0 % | 1.79 / 5.00 % | 51.6 / 55.4 MiB |
+| | **system** | **28.8 / 54.0 %** | **3.61 / 6.76 %** | **81.0 / 84.8 MiB** |
+
+slam_toolbox RSS grows slowly with the map/graph (46 -> 52 MiB mean from 2 to 10 laps); the EKF
+is constant.
+
+### Comment: does the correction layer remove the two drifts of Step 3?
+- **Heading (gyro bias):** yes. Base-layer heading error grows with time (long: 1.71 deg RMSE,
+  2.64 deg max); corrected 0.15 deg RMSE, 0.77 deg max, not growing.
+- **Distance (odometry scale error):** yes. The EKF position error grows lap by lap (long: up to
+  0.31 m, periodic with the lap because the error direction rotates with the route); the
+  corrected error stays below 4.5 cm for the whole 212 m (ATE-over-time plot). Corrected ATE is
+  2.6–13x smaller than the base layer (loop 0.077–0.105 -> 0.018–0.029 m, long 0.156 -> 0.012 m).
+- The correction does not depend on loop closures alone: seed 2 had none and still 1.9 cm, because
+  slam_toolbox matches every new scan against the existing map (scan-to-map matching bounds the
+  drift continuously); loop closures add small graph corrections (<= 2 cm vertex shifts).
+- **Failures:** none observed. No wrong loop closure (largest vertex shift 2 cm), the map after
+  10 laps has single, straight walls (no doubling or bending), map -> odom = identity at start in
+  every run. One minor point: in loop seed 1 the corrected heading RMSE (0.36 deg) is slightly
+  worse than the base layer (0.29 deg) — with the realistic gyro the base heading is already
+  good over 2 laps and scan matching adds small heading jitter; position is still 2.6x better.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+16 files checked   (0 errors)
 $ ament_pep257 src/gnssd_tools
 No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
