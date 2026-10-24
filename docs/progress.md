@@ -396,3 +396,183 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 2 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 3 — IMU model, EKF base layer, reproducibility guards (2026-10-24)
+
+Code commits: `f17a49f` (IMU model, EKF, guards, imu_covariance_node, tf_to_tum),
+`68dff80` (run_batch.sh fix, gyro bias estimate). All bags below were recorded with
+the clean tree at `68dff80` (`allow_dirty: false` in every run_info.yaml).
+
+### IMU model (`robot_params.xacro`)
+Calibrated MEMS gyro, Bosch BMI088 class (full reasoning in the xacro comment):
+
+| parameter | value | reasoning |
+|---|---|---|
+| gyro white noise sigma | 0.0017 rad/s | 0.014 deg/s/sqrt(Hz) x sqrt(50 Hz) = 0.099 deg/s |
+| gyro bias | mean 0, bias_stddev 1.0e-4 rad/s | residual after standstill calibration, drawn once per run (random sign) |
+| gyro dynamic bias | 1.0e-5 rad/s, correlation time 1000 s | in-run instability ~2 deg/h; supported by gz-sensors 8 (first-order Gauss-Markov) |
+| accelerometer | sigma 0.02 m/s^2, bias mean 0.01 (sd 0.001) | unchanged placeholders, NOT fused by the EKF |
+
+gz-sensors 8 `GaussianNoiseModel.cc`: bias = `math::Rand::DblNormal(bias_mean, bias_stddev)`,
+sign flipped with probability 0.5; `dynamic_bias_stddev` / `dynamic_bias_correlation_time`
+are read and applied in `ApplyImpl`. All draws use `gz::math::Rand`.
+
+### Seeding the Gazebo sensor noise
+`gz sim --seed <n>` -> `ServerConfig::SetSeed()` -> `math::Rand::Seed(n)` (gz-sim 8
+`src/ServerConfig.cc`). sim.launch.py passes the same `seed` argument as odom_noise_node;
+run_info.yaml stores it as `gz_sim_seed`. Checked: gyro z samples at the same sim stamps
+while standing still:
+```
+seed 7, run A: +0.002642@16.00, -0.001321@16.01, +0.000952@16.02 (mean over 400: +0.000034)
+seed 7, run B: +0.002642@16.00, -0.001321@16.01, +0.000952@16.02 (mean over 400: +0.000034)
+seed 8:        +0.000666@16.00, -0.001339@16.01, -0.001579@16.02 (mean over 400: -0.000004)
+```
+Same seed -> identical sensor noise; different seed -> different noise and bias.
+
+### IMU covariances (`imu_covariance_node`)
+Gazebo publishes the IMU with all covariances = 0; robot_localization would replace them with
+1e-9 and treat the gyro as perfect. `imu_covariance_node` republishes `/imu_raw` as `/imu` with
+angular_velocity_covariance diag = 0.0017^2 = 2.89e-6, linear_acceleration_covariance diag =
+0.02^2 = 4.0e-4, orientation_covariance[0] = -1 (REP 145). The sigmas are read by sim.launch.py
+from robot_params.xacro (no second copy). Checked in a bag: `/imu` 100.00 Hz,
+`angular_velocity_covariance [2.89e-06, 0, 0, 0, 2.89e-06, 0, 0, 0, 2.89e-06]`,
+`orientation_covariance[0] -1.0`.
+
+**Weighting of the yaw rate in the EKF:** odometry w variance 0.02^2 = 4.0e-4 vs gyro
+0.0017^2 = 2.89e-6 -> ratio 138 : 1, i.e. the gyro dominates the fused yaw rate.
+
+### EKF (`config/ekf.yaml`, robot_localization 3.5.4)
+frequency 30, two_d_mode, publish_tf, world_frame odom; odom0 = /odom fusing vx + vyaw;
+imu0 = /imu fusing vyaw only; print_diagnostics true; process_noise_covariance not set.
+`ros2 param get /ekf_filter_node process_noise_covariance` -> "Parameter not set", i.e. the
+built-in default is used. Default diagonal (robot_localization `params/ekf.yaml`: "Defaults to
+the matrix below if unspecified"), order x y z roll pitch yaw vx vy vz vroll vpitch vyaw ax ay az:
+```
+0.05 0.05 0.06 0.03 0.03 0.06 0.025 0.025 0.04 0.01 0.01 0.02 0.01 0.01 0.015   (off-diagonal 0)
+```
+
+Environment fix needed for the EKF: `ekf_node` died with `libdiagnostic_updater.so: cannot open
+shared object file` — installed ros-humble-diagnostic-updater 4.0.6 was older than the one
+robot_localization 3.5.4 was built against. Fixed with
+`sudo apt-get install --only-upgrade ros-humble-diagnostic-updater` (-> 4.0.7). Recorded in CLAUDE.md
+together with "never run apt autoremove" (219 ROS packages are listed as removable).
+
+```
+$ (bag) /odometry/filtered: 3323 msgs over one lap, 30.00 Hz (sim time); frame_id odom, child base_link
+$ ros2 topic info /tf -v          (sim + EKF + driving)
+Publisher count: 2   robot_state_publisher, ekf_filter_node
+$ ros2 topic info /tf_static -v
+Publisher count: 1   robot_state_publisher
+$ ros2 run tf2_tools view_frames  -> docs/img/step3_tf_frames.pdf
+odom -> base_link; base_link -> caster_link, chassis_link, imu_link, lidar_link, left/right_wheel_link
+```
+odom -> base_link comes only from ekf_filter_node (robot_state_publisher publishes only the
+robot's own links).
+
+### Reproducibility guards
+- run.launch.py refuses to start with uncommitted changes unless `allow_dirty:=true`:
+  ```
+  $ ros2 launch gnssd_bringup run.launch.py scenario:=guardtest seed:=1 laps:=1
+  [ERROR] [run.launch]: The repository has uncommitted changes; refusing to record a run that
+  cannot be traced to a commit. Commit first, or pass allow_dirty:=true.
+  # no process started, no bag created
+  ```
+  run_info.yaml records `allow_dirty`, `gz_sim_seed` and `laps` (read from route_driver_node).
+- `src/gnssd_tools/scripts/run_batch.sh <scenario> <laps> <seed_from> <seed_to> [args]`:
+  node check before every run, logs in bags/logs/, index in bags/index.csv:
+  ```
+  bag,scenario,laps,seed,commit,duration_s,extra_args
+  loop_seed1_20261024_111448,loop,2,1,68dff80249bbf4a5d21aad1d687c0621088ec44c,219.2,
+  loop_seed2_20261024_111837,loop,2,2,68dff80249bbf4a5d21aad1d687c0621088ec44c,221.3,
+  loop_seed3_20261024_112228,loop,2,3,68dff80249bbf4a5d21aad1d687c0621088ec44c,219.2,
+  long_seed1_20261024_112618,long,10,1,68dff80249bbf4a5d21aad1d687c0621088ec44c,1073.6,
+  loop_seed1_20261024_114421,loop,2,1,68dff80249bbf4a5d21aad1d687c0621088ec44c,220.3,odom_noise:=false
+  ```
+
+### evo and /tf
+```
+$ ~/.venvs/evo/bin/evo_traj bag2 <bag> /tf:odom.base_link
+ModuleNotFoundError: No module named 'tf2_py'
+```
+evo's TF reader needs ROS's tf2_py, which the venv does not have (and Humble's tf2_py is built
+for the system numpy 1.x). Fix: `src/gnssd_tools/scripts/tf_to_tum.py` (run with the venv
+Python, needs only rosbags + numpy + scipy) reads /tf and /tf_static, finds the chain
+parent -> child, interpolates dynamic edges (linear / slerp, no extrapolation), composes and
+writes TUM. Check against /odometry/filtered (same one-lap bag):
+```
+$ ~/.venvs/evo/bin/python src/gnssd_tools/scripts/tf_to_tum.py <bag> odom base_link tf.tum
+odom -> base_link: 3323 poses written (time base: odom -> base_link, 3323 stamps)
+$ evo_traj bag2 <bag> /odometry/filtered --save_as_tum
+$ evo_ape tum odometry_filtered.tum tf.tum                      -> rmse 0.000000 m, max 0.000000 m
+$ evo_ape tum odometry_filtered.tum tf.tum --pose_relation angle_deg -> rmse 0.000000 deg
+$ tf_to_tum.py <bag> odom lidar_link    # dynamic + static edge: z = 0.112500, x/y/yaw = base_link
+```
+
+### gz shutdown note
+When run.launch.py ends the experiment through the `Shutdown` action, `gz sim` sometimes does
+not react to SIGINT/SIGTERM and is killed after 15 s (`escalating to 'SIGKILL'`). The recorder
+gets its own SIGINT and closes the bag normally (metadata.yaml present, all bags readable).
+A plain Ctrl+C / SIGINT of sim.launch.py stops gz cleanly. Not investigated further.
+
+### Verification: ATE (translation, not aligned) and heading error vs /ground_truth
+
+Gyro bias = mean(/imu_raw w_z - /ground_truth w_z) over the run
+(`src/gnssd_tools/scripts/estimate_gyro_bias.py`); includes the dynamic bias.
+
+Scenario `loop`, 2 laps (42.50 m, 213.1 s), odometry noise ON:
+
+| seed | odom scale error lin / ang | gyro bias (est.) | estimate | RMSE | mean | max | heading RMSE | heading max |
+|---|---|---|---|---|---|---|---|---|
+| 1 | -1.46 % / +2.08 % | +2.14e-4 rad/s | /odometry/filtered | **0.109 m** | 0.098 m | 0.200 m | 1.25 deg | 2.49 deg |
+| | | | /odom | 0.477 m | 0.398 m | 1.009 m | 7.91 deg | 13.95 deg |
+| 2 | +1.82 % / +2.69 % | -2.5e-5 rad/s | /odometry/filtered | **0.110 m** | 0.099 m | 0.182 m | 0.27 deg | 0.75 deg |
+| | | | /odom | 0.597 m | 0.472 m | 1.408 m | 9.90 deg | 17.69 deg |
+| 3 | -1.05 % / +0.27 % | -1.14e-4 rad/s | /odometry/filtered | **0.069 m** | 0.062 m | 0.121 m | 0.89 deg | 1.70 deg |
+| | | | /odom | 0.248 m | 0.205 m | 0.467 m | 2.56 deg | 4.67 deg |
+
+Scenario `long`, 10 laps (212.12 m, 1061.2 s), seed 1, odometry noise ON
+(scale errors -1.46 % / +2.08 %, gyro bias est. +2.59e-4 rad/s):
+
+| estimate | RMSE | mean | max | heading RMSE | heading max |
+|---|---|---|---|---|---|
+| /odometry/filtered | **0.481 m** | 0.406 m | 1.013 m | 8.47 deg | 14.55 deg |
+| /odom | 2.377 m | 2.023 m | 4.922 m | 45.53 deg | 80.82 deg |
+
+ATE over time: `docs/img/step3_ape_over_time_long_seed1.png` (evo_res of both APE results);
+trajectories: `docs/img/step3_traj_long_seed1_trajectories.png`.
+
+Odometry noise OFF, gyro as configured (`loop`, 2 laps, seed 1, gyro bias est. +2.06e-4 rad/s):
+
+| estimate | RMSE | mean | max | heading RMSE | heading max |
+|---|---|---|---|---|---|
+| /odometry/filtered | 0.069 m | 0.053 m | 0.162 m | 1.23 deg | 2.46 deg |
+| /odom | 0.0050 m | 0.0049 m | 0.0061 m | 0.05 deg | 0.20 deg |
+
+/odom_raw in all runs: 0.0029–0.0032 m (start-up slip, Step 2).
+
+### Comment: what the gyro does
+- With noisy odometry the EKF reduces the heading error 2.9–37x (loop: 7.9 -> 1.25, 9.9 -> 0.27,
+  2.6 -> 0.89 deg; long: 45.5 -> 8.5 deg) and the position error 3.6–5.4x
+  (loop RMSE 0.25–0.60 -> 0.07–0.11 m; long 2.38 -> 0.48 m).
+- Because the gyro is weighted 138x more than the odometry yaw rate, the EKF heading is
+  practically the integrated gyro: its heading error is the same with and without odometry
+  noise (1.25 vs 1.23 deg, seed 1) and grows with the gyro bias (long run: 2.59e-4 rad/s x
+  1061 s = 15.7 deg, observed max 14.6 deg). The no-noise run therefore shows 6.9 cm instead of
+  0.5 cm: the filter adds no error of its own, but it passes the gyro bias into the estimate.
+- The remaining EKF position error comes mostly from the linear scale error of the odometry
+  (only odometry measures v; seed 2 has +1.8 % and 0.27 deg heading error but still 0.11 m).
+  Neither of the two drifts (gyro bias -> heading, scale -> distance) is observable without an
+  absolute reference; removing them is the job of the correction layer (SLAM, Step 4).
+- Seed 1 gyro bias (2.1–2.6e-4 rad/s) is ~2.5x the modelled bias_stddev; seeds 2 and 3 are
+  within 1.1 sigma.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+12 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 2 tests, 0 errors, 0 failures, 0 skipped
+```
