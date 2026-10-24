@@ -1,0 +1,12 @@
+# Parameters of resource_logger_node (gnssd_tools).
+#
+# Only the processes of the localization SYSTEM are measured (NFR-6, NFR-7).
+# The simulation stand (gz sim, bridge, odom_noise_node, imu_covariance_node,
+# route_driver_node, recorder, RViz) is deliberately not listed.
+# A name matches a process started with `__node:=<name>` or an executable
+# with that name. Later steps add sensor_monitor_node and map_manager_node.
+
+resource_logger_node:
+  ros__parameters:
+    processes: ['ekf_filter_node', 'async_slam_toolbox_node']
+    period: 1.0   # s, wall clock

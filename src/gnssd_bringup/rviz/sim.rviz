@@ -69,9 +69,18 @@ Visualization Manager:
         Head Radius: 0.03
       Covariance:
         Value: false
+    # Occupancy grid from slam_toolbox.
+    - Class: rviz_default_plugins/Map
+      Name: Map
+      Enabled: true
+      Topic:
+        Value: /map
+        Durability Policy: Transient Local
+      Color Scheme: map
+      Alpha: 0.7
   Global Options:
-    # odom -> base_link is published by the EKF, so the odom frame exists.
-    Fixed Frame: odom
+    # map -> odom (slam_toolbox) and odom -> base_link (EKF) both exist.
+    Fixed Frame: map
     Background Color: 48; 48; 48
     Frame Rate: 30
   Tools:

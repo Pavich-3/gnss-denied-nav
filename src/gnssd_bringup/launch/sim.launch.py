@@ -7,7 +7,8 @@ Usage:
   ros2 launch gnssd_bringup sim.launch.py drive:=true        # ... and drive the route
   ros2 launch gnssd_bringup sim.launch.py odom_noise:=false  # /odom == /odom_raw (baseline)
   ros2 launch gnssd_bringup sim.launch.py gui:=false         # no Gazebo window (batch runs)
-  ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer
+  ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer (and SLAM)
+  ros2 launch gnssd_bringup sim.launch.py slam:=false        # base layer only, no correction layer
 
 What gets started:
   gz sim                 the room world (server, plus GUI unless gui:=false)
@@ -17,6 +18,8 @@ What gets started:
   odom_noise_node        /odom_raw -> /odom (noisy wheel odometry)
   imu_covariance_node    /imu_raw -> /imu (adds the IMU covariances)
   ekf_filter_node        base layer: /odom + /imu -> /odometry/filtered and TF odom -> base_link
+  slam_toolbox           correction layer: /scan -> /map and TF map -> odom
+                         (started once the EKF process has started; it needs odom -> base_link)
   route_driver_node      only with drive:=true, follows config/route.yaml
   rviz2                  only with rviz:=true
 
@@ -29,8 +32,10 @@ import xml.etree.ElementTree as ElementTree
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, Shutdown
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, OpaqueFunction,
+                            RegisterEventHandler, Shutdown)
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessStart
 from launch.logging import get_logger
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
@@ -99,6 +104,7 @@ def generate_launch_description():
     odom_noise_config = os.path.join(bringup_dir, 'config', 'odom_noise.yaml')
     route_config = os.path.join(bringup_dir, 'config', 'route.yaml')
     ekf_config = os.path.join(bringup_dir, 'config', 'ekf.yaml')
+    slam_config = os.path.join(bringup_dir, 'config', 'slam_toolbox.yaml')
     rviz_config = os.path.join(bringup_dir, 'rviz', 'sim.rviz')
 
     arguments = [
@@ -117,6 +123,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'ekf', default_value='true',
             description='Start the EKF base layer (robot_localization)'),
+        DeclareLaunchArgument(
+            'slam', default_value='true',
+            description='Start the slam_toolbox correction layer (needs ekf:=true)'),
         DeclareLaunchArgument(
             'odom_noise', default_value='true',
             description='Add noise to wheel odometry (false = /odom equals /odom_raw)'),
@@ -197,6 +206,17 @@ def generate_launch_description():
         output='screen',
     )
 
+    slam = Node(
+        package='slam_toolbox',
+        executable='async_slam_toolbox_node',
+        name='slam_toolbox',
+        parameters=[slam_config, {'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('slam')),
+        output='screen',
+    )
+    start_slam_after_ekf = RegisterEventHandler(
+        OnProcessStart(target_action=ekf, on_start=[slam]))
+
     route_driver = Node(
         package='gnssd_tools',
         executable='route_driver_node',
@@ -223,6 +243,7 @@ def generate_launch_description():
         odom_noise,
         imu_covariance,
         ekf,
+        start_slam_after_ekf,
         route_driver,
         rviz,
     ])

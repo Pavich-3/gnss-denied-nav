@@ -46,7 +46,13 @@ class Edge:
 
     def finish(self):
         """Sort the samples and prepare them for interpolation."""
-        self.samples.sort(key=lambda sample: sample[0])
+        # Some publishers repeat the same stamp (slam_toolbox re-sends map -> odom
+        # every 20 ms with the stamp of the last scan). Keep the latest sample
+        # per stamp, so the times are strictly increasing.
+        latest_per_stamp = {}
+        for sample in self.samples:
+            latest_per_stamp[sample[0]] = sample
+        self.samples = sorted(latest_per_stamp.values(), key=lambda sample: sample[0])
         self.times = np.array([s[0] for s in self.samples])
         self.translations = np.array([s[1] for s in self.samples])
         self.rotations = Rotation.from_quat([s[2] for s in self.samples])

@@ -27,7 +27,9 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | `/imu` | sensor_msgs/Imu | imu_covariance_node: /imu_raw + covariances from robot_params.xacro (EKF input) |
 | `/odom_raw` | nav_msgs/Odometry | directly from the simulator |
 | `/odom` | nav_msgs/Odometry | odometry noise node (EKF input) |
-| `/odometry/filtered` | nav_msgs/Odometry | EKF output |
+| `/odometry/filtered` | nav_msgs/Odometry | EKF output (base layer) |
+| `/map` | nav_msgs/OccupancyGrid | slam_toolbox |
+| `/pose` | geometry_msgs/PoseWithCovarianceStamped | slam_toolbox (informational; the corrected estimate is defined by TF map -> base_link) |
 | `/ground_truth` | nav_msgs/Odometry | simulator, gz OdometryPublisher, frame `world` (evaluation + route driver only) |
 | `/cmd_vel` | geometry_msgs/Twist | teleop / Nav2 |
 | `/joint_states` | sensor_msgs/JointState | simulator (wheel joints) |
@@ -50,6 +52,9 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
   from an earlier session (e.g. a second parameter_bridge or odom_noise_node)
   publishes into the same topics and silently corrupts the bag (happened in
   Step 2).
+- Corrected estimate = TF map -> base_link (slam_toolbox map -> odom composed with EKF
+  odom -> base_link), extracted with `src/gnssd_tools/scripts/tf_to_tum.py <bag> map base_link`
+  (evo in the venv cannot read /tf). Base layer = /odometry/filtered.
 - One run = one bag in `bags/<scenario>_seed<seed>_<timestamp>/` with
   `run_info.yaml`; started with `ros2 launch gnssd_bringup run.launch.py`.
 
