@@ -18,8 +18,6 @@
 #
 # The launch output of every run is kept in bags/logs/.
 
-set -u
-
 if [ $# -lt 4 ]; then
   echo "Usage: $0 <scenario> <laps> <seed_from> <seed_to> [extra launch args]"
   exit 1
@@ -38,6 +36,9 @@ cd "$REPO" || exit 1
 source /opt/ros/humble/setup.bash
 # shellcheck disable=SC1091
 source install/setup.bash
+# Treat unset variables as errors from here on (ROS setup.bash itself does
+# not work with `set -u`, so it is switched on only after sourcing).
+set -u
 
 INDEX=bags/index.csv
 LOG_DIR=bags/logs

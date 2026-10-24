@@ -33,6 +33,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/geometry.py`: small 2D helpers (yaw from quaternion, angle wrapping).
 - `src/gnssd_tools/scripts/compare_odom.py`: plots `/odom` vs `/odom_raw` from a bag and reports the drift.
 - `src/gnssd_tools/scripts/run_batch.sh`: runs one scenario for a range of seeds and writes bags/index.csv.
+- `src/gnssd_tools/scripts/estimate_gyro_bias.py`: estimates the per-run gyro z bias from a bag (/imu_raw vs /ground_truth).
 - `src/gnssd_tools/scripts/tf_to_tum.py`: extracts a TF trajectory (e.g. odom -> base_link) from a bag as a TUM file for evo.
 - `src/gnssd_tools/test/`: flake8 and pep257 style tests (`colcon test`).
 - `docs/img/`: figures produced by the verification steps.
