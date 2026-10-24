@@ -26,19 +26,16 @@ import math
 import random
 
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterDescriptor
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 
+from gnssd_tools.geometry import normalize_angle, yaw_from_quaternion
+
 # Variance written for the axes a differential-drive robot cannot move along
 # (sideways, vertical, roll, pitch). Tiny = "we are sure this is zero".
 UNUSED_AXIS_VARIANCE = 1e-9
-
-
-def yaw_from_quaternion(q):
-    """Return the heading angle (rotation about z) of a quaternion, in radians."""
-    return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                      1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def diagonal_covariance(variances):
@@ -76,6 +73,15 @@ class OdomNoiseNode(Node):
             angular_scale_error = self.rng.uniform(-angular_scale_error, angular_scale_error)
         self.linear_scale_error = linear_scale_error
         self.angular_scale_error = angular_scale_error
+
+        # The values actually used are exposed as read-only parameters, so
+        # that run_info_writer_node can store them next to the recorded bag.
+        # With the noise disabled nothing is applied, so they are reported as 0.
+        read_only = ParameterDescriptor(read_only=True)
+        self.declare_parameter('applied_linear_scale_error',
+                               linear_scale_error if self.enabled else 0.0, read_only)
+        self.declare_parameter('applied_angular_scale_error',
+                               angular_scale_error if self.enabled else 0.0, read_only)
 
         # Dead-reckoning state. It is initialised from the first /odom_raw
         # message so that /odom and /odom_raw start at the same pose.
@@ -117,8 +123,7 @@ class OdomNoiseNode(Node):
         # Unicycle model, simple Euler step.
         self.x += linear * math.cos(self.yaw) * dt
         self.y += linear * math.sin(self.yaw) * dt
-        self.yaw += angular * dt
-        self.yaw = math.atan2(math.sin(self.yaw), math.cos(self.yaw))  # keep in (-pi, pi]
+        self.yaw = normalize_angle(self.yaw + angular * dt)
 
         self.publish(raw.header.stamp, linear, angular)
 

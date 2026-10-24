@@ -241,3 +241,158 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 2 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 2 — Origin start, ground truth, route driver, rosbag2 profile (2026-10-22)
+
+### What changed
+- `room.sdf` translated by (+3.5, +2.5): the start point is now the world origin, in the
+  south corridor, facing +x. Room x -1.5..8.5, y -1.5..6.5; island centre (3.5, 2.5).
+  Grey materials on walls and obstacles. Spawn defaults 0/0/0; sim.launch.py logs a
+  WARNING if they are changed (ATE without alignment needs the origin start).
+- `/ground_truth`: gz `OdometryPublisher` on the robot, 50 Hz, dimensions 2, frame `world`
+  -> `base_link`, no noise, its TF topic not bridged.
+- `route_driver_node` (pure pursuit on /ground_truth, `config/route.yaml`): 8 waypoints around
+  the island, 2 laps, 0.2 m/s, look-ahead 0.5 m; stops, logs and exits at the end.
+- `record.launch.py` (rosbag2 sqlite3 + `run_info.yaml`), `run.launch.py` (sim + driver +
+  recording, shuts down when the driver exits). `sim.launch.py`: new args `gui`, `drive`, `seed`.
+- `odom_noise.yaml`: `random_scale: true` (scale errors drawn from +/-0.02 and +/-0.03 per seed).
+  The node exposes the drawn values as read-only parameters `applied_*_scale_error`
+  (0 when the noise is disabled); `run_info_writer_node` stores them.
+- **Wheel collision changed from cylinder to sphere** (see "Problem found" below).
+- evo moved to its own venv `~/.venvs/evo` (same version 1.38.0), see below.
+
+### OdometryPublisher: world pose or relative to the start?
+gz-sim 8 source (`src/systems/odometry_publisher/OdometryPublisher.cc`, branch gz-sim8):
+`const math::Pose3d rawPose = worldPose(this->model.Entity(), _ecm);`
+`math::Pose3d pose = rawPose * this->offset;` -> the published pose is the model's WORLD
+pose (offset = xyz_offset/rpy_offset = 0); no initial pose is subtracted. Twist is a
+finite difference smoothed with a rolling mean of 10 samples, in the body frame.
+With the start at the origin both interpretations coincide:
+```
+$ ros2 topic echo /ground_truth --once      (t = 13.0 s, robot standing at the start)
+frame_id: world   child_frame_id: base_link
+position: x: 2.3e-10  y: -2.8e-19      orientation: z: -1.9e-19  w: 1.0
+$ ros2 topic echo /odom_raw --once
+frame_id: odom    child_frame_id: base_link
+position: x: 7.6e-19  y: -4.0e-36      orientation: z: -5.7e-18  w: 1.0
+# first samples in the recorded bag (t = 0.020 s): both (0.0000, 0.0000)
+```
+
+### Problem found and fixed: cylinder wheel contact
+The first noise-off run gave ATE(/odom_raw) = 2.16 m RMSE instead of centimetres.
+A spin/line test (command for 10 s, compare with /ground_truth) showed that the physics
+did not follow the DiffDrive kinematics:
+
+| test | command | true motion (cylinder collision) | true motion (sphere collision) | /odom_raw |
+|---|---|---|---|---|
+| spin in place, w = 0.5 rad/s | 5.000 rad | 5.529 rad (+10.6 %) | 5.000 rad | 5.000 rad |
+| straight, v = 0.2 m/s | 2.000 m | 1.936 m (-3.2 %) | 1.998 m (-0.1 %) | 2.000 m |
+
+A cylinder touches the floor along its rim and the contact ended up near the inner edge
+(effective track ~0.23 m instead of 0.26 m). The wheel collision is now a sphere of the
+wheel radius (visual stays a cylinder): a single contact point in the wheel mid-plane.
+Step 1 results (/odom vs /odom_raw) are not affected: they compare two signals computed
+from the same wheel velocities.
+
+A second problem in the same session: two orphaned nodes from a manual test
+(parameter_bridge, odom_noise_node) kept publishing into /odom_raw, /odom, ... and
+corrupted three bags. They were deleted; the batch script now refuses to start while
+`ros2 node list --no-daemon --spin-time 3` is not empty (rule added to CLAUDE.md).
+
+### Storage format
+Test bag with nav_msgs/Odometry recorded with `--storage sqlite3` and `--storage mcap`:
+```
+$ evo_traj bag2 bag_sqlite3 /test_odom   -> 58 poses        (works)
+$ evo_traj bag2 bag_mcap /test_odom      -> 60 poses        (works)
+$ evo_traj mcap bag_mcap/*.mcap /test_odom -> 60 poses      (works)
+```
+Both work with evo 1.38 `bag2` (it reads through the `rosbags` library). Chosen: **sqlite3**,
+the rosbag2 default in Humble: no extra plugin, read by `ros2 bag info`, rosbag2_py and evo.
+
+### evo installation change
+`evo_traj --save_plot` crashed with the pip --user install:
+`ImportError: cannot import name 'docstring' from 'matplotlib'` — Ubuntu's
+python3-matplotlib 3.5 (required by rqt_plot) installs a regular `mpl_toolkits` package that
+shadows the namespace package of pip's matplotlib 3.10. Fix without touching system packages:
+```
+python3 -m venv ~/.venvs/evo && ~/.venvs/evo/bin/pip install "evo==1.38.0"
+# evo 1.38.0, matplotlib 3.10.9, numpy 2.2.6, scipy 1.15.3, rosbags 0.11.9
+~/.venvs/evo/bin/evo_config set plot_backend Agg
+```
+All evo commands below use `~/.venvs/evo/bin/`.
+
+### Verification
+
+Runs (all `ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=N odom_noise:=...`,
+gui:=false, headless rendering on NVIDIA EGL; every run exited by itself with code 0):
+
+| bag | noise | seed | drawn scale errors (lin / ang) | driven | duration | max dist. from route |
+|---|---|---|---|---|---|---|
+| loop_seed1_20261022_230940 | off | 1 | 0 / 0 | 42.50 m | 213.1 s | 0.107 m |
+| loop_seed1_20261022_231330 | on | 1 | -0.01463 / +0.02085 | 42.50 m | 213.1 s | 0.107 m |
+| loop_seed2_20261022_231719 | on | 2 | +0.01824 / +0.02687 | 42.50 m | 213.1 s | 0.107 m |
+| loop_seed3_20261022_232109 | on | 3 | -0.01048 / +0.00265 | 42.50 m | 213.1 s | 0.107 m |
+
+Planned route 43.04 m (2 laps); the driver cuts the 45-degree corners slightly, hence 42.50 m.
+The route is identical in every run (driver steers on ground truth); the final pose is
+(0.000, 0.049) — the goal tolerance is 0.05 m. Max distance from the polyline 0.107 m:
+with >= 0.8 m planned clearance minus 0.107 m deviation minus the 0.14 m half-width, the robot stayed > 0.5 m from every wall/obstacle: no collisions.
+
+```
+$ cat bags/loop_seed1_20261022_231330/run_info.yaml
+scenario: loop
+seed: 1
+odom_noise:
+  enabled: true
+  random_scale: true
+  linear_scale_error: 0.02
+  angular_scale_error: 0.03
+  applied_linear_scale_error: -0.014625430235503951
+  applied_angular_scale_error: 0.02084602421623396
+  linear_noise_stddev: 0.02
+  angular_noise_stddev: 0.02
+  standstill_linear_speed: 0.001
+  standstill_angular_speed: 0.001
+  seed: 1
+git_commit: 3725d81edc4a10c6b842b2c6ddba23845644879b-dirty
+gz_sim_version: 8.15.0
+```
+
+```
+$ evo_traj bag2 bags/loop_seed1_20261022_231330 /odom_raw /odom --ref /ground_truth \
+    --plot_mode xy --save_plot docs/img/step2_traj_seed1.png
+name: /odom_raw      10839 poses, 42.500m path length, 216.760s duration
+name: /odom          10838 poses, 41.829m path length, 216.740s duration
+name: /ground_truth  10839 poses, 42.498m path length, 216.760s duration
+```
+Plot: `docs/img/step2_traj_seed1_trajectories.png` (and `_xyz.png`).
+
+ATE, translation part, **not aligned** (`evo_ape bag2 <bag> /ground_truth <est>`, no -a,
+no --align_origin):
+
+| bag | estimate | RMSE | mean | max |
+|---|---|---|---|---|
+| noise off, seed 1 | /odom_raw | 0.0029 m | 0.0028 m | 0.0030 m |
+| noise off, seed 1 | /odom | 0.0048 m | 0.0047 m | 0.0058 m |
+| noise on, seed 1 | /odom_raw | 0.0029 m | 0.0028 m | 0.0030 m |
+| noise on, seed 1 | /odom | **0.479 m** | 0.400 m | 1.009 m |
+| noise on, seed 2 | /odom | **0.599 m** | 0.476 m | 1.408 m |
+| noise on, seed 3 | /odom | **0.247 m** | 0.205 m | 0.466 m |
+
+- /odom_raw: ~3 mm, constant. It appears within 40 ms of the start of motion (t = 4.06–4.08 s,
+  velocity step 0 -> 0.2 m/s, brief wheel slip) and does not grow afterwards.
+- /odom without noise: 4.8 mm (Euler integration in the node vs DiffDrive's own integration).
+- /odom with noise: 0.25–0.60 m RMSE; the seed changes both the drawn scale errors and the
+  result. Seed 3 drew a small angular error (+0.27 %) and has the smallest ATE, seed 2 the
+  largest errors (+1.8 % / +2.7 %) and the largest ATE.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished [1.49s]
+$ ament_flake8 src/gnssd_tools
+9 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 2 tests, 0 errors, 0 failures, 0 skipped
+```

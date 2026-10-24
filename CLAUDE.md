@@ -27,16 +27,38 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | `/odom_raw` | nav_msgs/Odometry | directly from the simulator |
 | `/odom` | nav_msgs/Odometry | odometry noise node (EKF input) |
 | `/odometry/filtered` | nav_msgs/Odometry | EKF output |
-| `/ground_truth` | nav_msgs/Odometry | simulator (evaluation only) |
+| `/ground_truth` | nav_msgs/Odometry | simulator, gz OdometryPublisher, frame `world` (evaluation + route driver only) |
 | `/cmd_vel` | geometry_msgs/Twist | teleop / Nav2 |
 | `/joint_states` | sensor_msgs/JointState | simulator (wheel joints) |
 | `/clock` | rosgraph_msgs/Clock | simulator |
+
+## Evaluation conventions
+- ATE is computed WITHOUT alignment: `evo_ape bag2 <bag> /ground_truth <est>`
+  with no `-a`, `--align_origin` or `-s`.
+- Why: alignment fits the estimate onto the reference and hides part of the
+  drift that the thesis measures. Without alignment the estimate and the
+  reference must share one frame from t = 0.
+- Therefore every mapping run starts at the world origin (x = 0, y = 0,
+  yaw = 0). room.sdf is built around that start point, the spawn defaults
+  are 0, and sim.launch.py warns if they are changed. odom and map then
+  start at the world origin, and /ground_truth (gz OdometryPublisher, world
+  pose) is directly comparable.
+- /ground_truth is used only for evaluation and by the route driver (stand),
+  never by the estimators.
+- Before every recorded run `ros2 node list` must be empty. A leftover node
+  from an earlier session (e.g. a second parameter_bridge or odom_noise_node)
+  publishes into the same topics and silently corrupts the bag (happened in
+  Step 2).
+- One run = one bag in `bags/<scenario>_seed<seed>_<timestamp>/` with
+  `run_info.yaml`; started with `ros2 launch gnssd_bringup run.launch.py`.
 
 ## GPU / rendering
 - Host: hybrid laptop, `prime-select on-demand`, X11 session driven by the
   NVIDIA GTX 1650 Ti. Gazebo already renders on NVIDIA without any extra
   environment variables: `nvidia-smi` lists `gz sim server` (gpu_lidar) and
   `gz sim gui` as G-type processes (checked in Step 0/1, see docs/progress.md).
+  Headless runs (`gui:=false`, `gz sim -s --headless-rendering`) also render
+  on NVIDIA through EGL (checked in Step 2).
   Therefore sim.launch.py sets NO `__NV_PRIME_RENDER_OFFLOAD` /
   `__GLX_VENDOR_LIBRARY_NAME` / `__EGL_VENDOR_LIBRARY_FILENAMES`.
 - If `nvidia-smi` ever stops listing the gz processes (e.g. after switching to
@@ -47,6 +69,11 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
   probed first, then NVIDIA is used).
 
 ## Environment
+- evo 1.38.0 lives in its own venv: use `~/.venvs/evo/bin/evo_ape`,
+  `~/.venvs/evo/bin/evo_traj` etc. The `pip --user` evo in ~/.local cannot
+  plot: Ubuntu's python3-matplotlib (needed by rqt_plot) ships a regular
+  `mpl_toolkits` package that shadows the one of pip's matplotlib 3.10.
+  The venv does not need ROS (evo reads bags through `rosbags`).
 - `~/.bashrc` sources `/opt/ros/humble` and also the user's other workspace
   `~/ros2_ws/install` (unrelated packages). No Noetic paths are present.
 

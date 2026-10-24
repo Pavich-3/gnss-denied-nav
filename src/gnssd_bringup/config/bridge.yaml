@@ -5,8 +5,8 @@
 # use the same names. Frame IDs are set there too (gz_frame_id, DiffDrive
 # frame_id/child_frame_id), so no relay node is needed.
 #
-# Deliberately NOT bridged: the DiffDrive TF topic. odom -> base_link is
-# published only by the EKF (see CLAUDE.md).
+# Deliberately NOT bridged: the TF topics of DiffDrive and OdometryPublisher.
+# odom -> base_link is published only by the EKF (see CLAUDE.md).
 
 - ros_topic_name: /clock
   gz_topic_name: /clock
@@ -28,6 +28,13 @@
 
 - ros_topic_name: /odom_raw
   gz_topic_name: /odom_raw
+  ros_type_name: nav_msgs/msg/Odometry
+  gz_type_name: gz.msgs.Odometry
+  direction: GZ_TO_ROS
+
+# Exact world pose of the robot, for evaluation only (never fed to the estimators).
+- ros_topic_name: /ground_truth
+  gz_topic_name: /ground_truth
   ros_type_name: nav_msgs/msg/Odometry
   gz_type_name: gz.msgs.Odometry
   direction: GZ_TO_ROS

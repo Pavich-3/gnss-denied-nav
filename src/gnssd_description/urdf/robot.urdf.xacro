@@ -15,6 +15,7 @@
   Gazebo Harmonic plugins at the end of the file:
     DiffDrive            /cmd_vel in, /odom_raw out (its TF is NOT used, see CLAUDE.md)
     JointStatePublisher  /joint_states, so robot_state_publisher can move the wheels
+    OdometryPublisher    /ground_truth, exact world pose for evaluation (TF not used)
 
   All numbers come from robot_params.xacro.
 -->
@@ -92,8 +93,15 @@
         <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
         <material name="wheel_black"/>
       </visual>
+      <!-- Collision is a SPHERE of the wheel radius, not the cylinder.
+           A cylinder lying on the floor touches it along an edge, and the
+           physics engine puts the contact near the inner rim: the effective
+           track width becomes ~0.23 m instead of 0.26 m, and the robot turns
+           ~10 % faster than DiffDrive assumes (measured in Step 2). A sphere
+           touches the floor in exactly one point in the wheel's mid-plane,
+           so the real kinematics match wheel_separation. -->
       <collision>
-        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <geometry><sphere radius="${wheel_radius}"/></geometry>
       </collision>
       <xacro:cylinder_inertial mass="${wheel_mass}" radius="${wheel_radius}"
                                length="${wheel_width}"/>
@@ -273,6 +281,21 @@
     <plugin filename="gz-sim-joint-state-publisher-system"
             name="gz::sim::systems::JointStatePublisher">
       <topic>joint_states</topic>
+    </plugin>
+
+    <!-- Ground truth for evaluation (/ground_truth). In gz-sim 8 this system
+         publishes the model's WORLD pose (no initial pose is subtracted), so
+         the frame is called "world". No noise is added. Like DiffDrive, it
+         always publishes a TF message; that topic is not bridged. -->
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_topic>ground_truth</odom_topic>
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_publish_frequency>${ground_truth_publish_rate}</odom_publish_frequency>
+      <dimensions>2</dimensions>
+      <gaussian_noise>0.0</gaussian_noise>
+      <tf_topic>gz_ground_truth_tf_not_bridged</tf_topic>
     </plugin>
   </gazebo>
 

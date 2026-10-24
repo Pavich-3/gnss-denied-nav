@@ -1,0 +1,38 @@
+# Parameters of route_driver_node (gnssd_tools).
+#
+# The route is a closed loop around the central island of room.sdf,
+# counter-clockwise, starting and ending at the origin (the robot's start).
+#
+#        (0.5,4.2) <------------------------ (6.5,4.2)
+#   (0,3.7)                                          (7,3.7)
+#     |              [ central island ]                 |
+#   (0,0.5)          x 1.5..5.5, y 1.7..3.3          (7,0.5)
+#        (0,0) S ------------------------> (6.5,0)
+#
+# Corners are cut at 45 deg so the robot turns smoothly. Every segment keeps
+# at least 0.8 m from the walls, the island, the pillar and the wall stub.
+# One lap is about 22.2 m.
+
+route_driver_node:
+  ros__parameters:
+    # Flat list x0, y0, x1, y1, ... (ROS parameters cannot be nested lists).
+    # The first point must be the start (0, 0); the loop closes back to it.
+    waypoints: [0.0, 0.0,
+                6.5, 0.0,
+                7.0, 0.5,
+                7.0, 3.7,
+                6.5, 4.2,
+                0.5, 4.2,
+                0.0, 3.7,
+                0.0, 0.5]
+
+    laps: 2
+    linear_speed: 0.2          # m/s
+    max_angular_speed: 0.6     # rad/s
+    lookahead_distance: 0.5    # m, pure pursuit look-ahead
+    goal_tolerance: 0.05       # m, distance to the final point that counts as "arrived"
+    control_rate: 20.0         # Hz
+
+    # Wait this long (simulation time) after the first /ground_truth message
+    # before moving, so that the recorder and all nodes are up.
+    start_delay: 3.0           # s

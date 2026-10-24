@@ -2,9 +2,14 @@
 <!--
   Test world: one closed indoor room, 10 m x 8 m, walls 1 m high.
 
-  Top view (x to the right, y up, origin in the middle of the room):
+  The world origin (0, 0) is the robot's START POINT, not the centre of the
+  room. Ground truth is published in world coordinates and ATE is computed
+  without any alignment, so the start pose has to be (0, 0, yaw 0)
+  - see CLAUDE.md, "Evaluation conventions".
 
-     y=+4  +------------------------------------------+
+  Top view (x to the right, y up):
+
+    y=6.5  +------------------------------------------+
            |                 |                        |
            |   [box]         | (wall stub)    [pillar]|
            |                 |                        |
@@ -12,14 +17,14 @@
            |        |     central island     |        |
            |        +------------------------+        |
            |                                          |
-           |  S                                       |
-     y=-4  +------------------------------------------+
-         x=-5                                       x=+5
+    y=0    |  S ->                                    |
+    y=-1.5 +------------------------------------------+
+         x=-1.5                                     x=8.5
 
-  The central island makes a closed loop route: the robot starts at S
-  (-3.5, -2.5), drives around the island and comes back to S. That gives
-  SLAM a loop closure. The box, the pillar and the wall stub break the
-  symmetry of the room, so lidar scans from different places look different.
+  S = start (0, 0), facing +x along the south corridor.
+  The central island makes a closed loop route around it, which gives SLAM a
+  loop closure. The box, the pillar and the wall stub break the symmetry of
+  the room, so lidar scans from different places look different.
 
   Everything static is one model with one link: few models = fast simulation.
 -->
@@ -45,7 +50,7 @@
 
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
-      <pose>0 0 10 0 0 0</pose>
+      <pose>3.5 2.5 10 0 0 0</pose>
       <diffuse>0.8 0.8 0.8 1</diffuse>
       <specular>0.2 0.2 0.2 1</specular>
       <direction>-0.5 0.1 -0.9</direction>
@@ -60,91 +65,101 @@
         <visual name="visual">
           <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
           <material>
-            <ambient>0.7 0.7 0.7 1</ambient>
-            <diffuse>0.7 0.7 0.7 1</diffuse>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.85 0.85 0.85 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
 
+    <!-- Room centre is at (3.5, 2.5): the old centred layout shifted so that
+         the start point lands on the origin. -->
     <model name="room">
       <static>true</static>
       <link name="walls">
 
         <!-- Outer walls: 0.15 m thick, centred on the room boundary. -->
         <collision name="north_wall">
-          <pose>0 4 0.5 0 0 0</pose>
+          <pose>3.5 6.5 0.5 0 0 0</pose>
           <geometry><box><size>10.15 0.15 1</size></box></geometry>
         </collision>
         <visual name="north_wall">
-          <pose>0 4 0.5 0 0 0</pose>
+          <pose>3.5 6.5 0.5 0 0 0</pose>
           <geometry><box><size>10.15 0.15 1</size></box></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
 
         <collision name="south_wall">
-          <pose>0 -4 0.5 0 0 0</pose>
+          <pose>3.5 -1.5 0.5 0 0 0</pose>
           <geometry><box><size>10.15 0.15 1</size></box></geometry>
         </collision>
         <visual name="south_wall">
-          <pose>0 -4 0.5 0 0 0</pose>
+          <pose>3.5 -1.5 0.5 0 0 0</pose>
           <geometry><box><size>10.15 0.15 1</size></box></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
 
         <collision name="east_wall">
-          <pose>5 0 0.5 0 0 0</pose>
+          <pose>8.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>0.15 8 1</size></box></geometry>
         </collision>
         <visual name="east_wall">
-          <pose>5 0 0.5 0 0 0</pose>
+          <pose>8.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>0.15 8 1</size></box></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
 
         <collision name="west_wall">
-          <pose>-5 0 0.5 0 0 0</pose>
+          <pose>-1.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>0.15 8 1</size></box></geometry>
         </collision>
         <visual name="west_wall">
-          <pose>-5 0 0.5 0 0 0</pose>
+          <pose>-1.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>0.15 8 1</size></box></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
 
-        <!-- Central island, 4 m x 1.6 m: the robot drives around it. -->
+        <!-- Central island, 4 m x 1.6 m (x 1.5..5.5, y 1.7..3.3): the robot drives around it. -->
         <collision name="central_island">
-          <pose>0 0 0.5 0 0 0</pose>
+          <pose>3.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>4 1.6 1</size></box></geometry>
         </collision>
         <visual name="central_island">
-          <pose>0 0 0.5 0 0 0</pose>
+          <pose>3.5 2.5 0.5 0 0 0</pose>
           <geometry><box><size>4 1.6 1</size></box></geometry>
+          <material><ambient>0.45 0.45 0.45 1</ambient><diffuse>0.45 0.45 0.45 1</diffuse></material>
         </visual>
 
-        <!-- Wall stub hanging from the north wall (from y=4 down to y=2.5). -->
+        <!-- Wall stub hanging from the north wall (from y=6.5 down to y=5.0). -->
         <collision name="wall_stub">
-          <pose>1 3.25 0.5 0 0 0</pose>
+          <pose>4.5 5.75 0.5 0 0 0</pose>
           <geometry><box><size>0.15 1.5 1</size></box></geometry>
         </collision>
         <visual name="wall_stub">
-          <pose>1 3.25 0.5 0 0 0</pose>
+          <pose>4.5 5.75 0.5 0 0 0</pose>
           <geometry><box><size>0.15 1.5 1</size></box></geometry>
+          <material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material>
         </visual>
 
         <!-- Two small obstacles that make the room asymmetric. -->
         <collision name="box">
-          <pose>-3.5 2.5 0.25 0 0 0.4</pose>
+          <pose>0 5.0 0.25 0 0 0.4</pose>
           <geometry><box><size>0.6 0.3 0.5</size></box></geometry>
         </collision>
         <visual name="box">
-          <pose>-3.5 2.5 0.25 0 0 0.4</pose>
+          <pose>0 5.0 0.25 0 0 0.4</pose>
           <geometry><box><size>0.6 0.3 0.5</size></box></geometry>
+          <material><ambient>0.45 0.45 0.45 1</ambient><diffuse>0.45 0.45 0.45 1</diffuse></material>
         </visual>
 
         <collision name="pillar">
-          <pose>3.5 2.5 0.5 0 0 0</pose>
+          <pose>7.0 5.0 0.5 0 0 0</pose>
           <geometry><cylinder><radius>0.2</radius><length>1</length></cylinder></geometry>
         </collision>
         <visual name="pillar">
-          <pose>3.5 2.5 0.5 0 0 0</pose>
+          <pose>7.0 5.0 0.5 0 0 0</pose>
           <geometry><cylinder><radius>0.2</radius><length>1</length></cylinder></geometry>
+          <material><ambient>0.45 0.45 0.45 1</ambient><diffuse>0.45 0.45 0.45 1</diffuse></material>
         </visual>
 
       </link>

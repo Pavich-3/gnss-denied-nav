@@ -18,7 +18,10 @@ odom_noise_node:
 
     # If true, the two scale errors above are not used directly: each one is
     # drawn once at start-up, uniformly from [-value, +value], using `seed`.
-    random_scale: false
+    # On (since Step 2) so that runs with different seeds differ in both the
+    # systematic and the random error. The drawn values are logged and stored
+    # in the bag's run_info.yaml.
+    random_scale: true
 
     # Random error added to every message (odometry arrives at 50 Hz).
     linear_noise_stddev: 0.02    # m/s
@@ -31,5 +34,6 @@ odom_noise_node:
     standstill_angular_speed: 0.001  # rad/s
 
     # Seed of the random generator: the same seed gives the same noise
-    # sequence, so a run can be repeated exactly.
+    # sequence, so a run can be repeated exactly. This is the default of the
+    # `seed` launch argument of sim.launch.py / run.launch.py.
     seed: 42

@@ -73,4 +73,7 @@
   <!-- ===================== Drive controller ===================== -->
   <xacro:property name="odom_publish_rate" value="50"/>   <!-- Hz, /odom_raw -->
 
+  <!-- ===================== Ground truth ===================== -->
+  <xacro:property name="ground_truth_publish_rate" value="50"/>   <!-- Hz, /ground_truth -->
+
 </robot>
