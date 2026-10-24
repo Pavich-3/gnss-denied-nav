@@ -78,11 +78,18 @@
        = 1e-5 rad/s. gz-sensors 8 supports it as a first-order Gauss-Markov
        process (dynamic_bias_stddev, dynamic_bias_correlation_time). The
        correlation time is chosen longer than a run, so it acts as a slow
-       drift of the bias. -->
+       drift of the bias.
+       NOTE (fixed in Step 4): gz-sensors' dynamic_bias_stddev is NOT the
+       stationary standard deviation of the drift. Its update is
+         b(k+1) = exp(-dt/tau) b(k) + N(0, sigma_gz^2 tau/2 (1 - exp(-2 dt/tau))),
+       whose stationary standard deviation is sigma_gz * sqrt(tau / 2).
+       imu_gyro_dynamic_bias_stddev below is the physical (stationary) value;
+       robot.urdf.xacro converts it: sigma_gz = value / sqrt(tau / 2).
+       Step 3 passed 1e-5 directly, i.e. a stationary drift of 2.2e-4 rad/s. -->
   <xacro:property name="imu_gyro_noise_stddev"            value="0.0017"/>   <!-- rad/s -->
   <xacro:property name="imu_gyro_bias_mean"               value="0.0"/>      <!-- rad/s -->
   <xacro:property name="imu_gyro_bias_stddev"             value="1.0e-4"/>   <!-- rad/s -->
-  <xacro:property name="imu_gyro_dynamic_bias_stddev"     value="1.0e-5"/>   <!-- rad/s -->
+  <xacro:property name="imu_gyro_dynamic_bias_stddev"     value="1.0e-5"/>   <!-- rad/s, stationary -->
   <xacro:property name="imu_gyro_dynamic_bias_corr_time"  value="1000.0"/>   <!-- s -->
 
   <!-- Accelerometer: NOT FUSED BY THE EKF (only the gyro z rate is used).

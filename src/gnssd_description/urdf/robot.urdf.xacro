@@ -234,6 +234,11 @@
     </xacro:element>
   </xacro:macro>
 
+  <!-- gz-sensors parameter for the gyro drift: the stationary value from
+       robot_params.xacro divided by sqrt(tau / 2) (see the note there). -->
+  <xacro:property name="gyro_dynamic_bias_sigma_gz"
+                  value="${imu_gyro_dynamic_bias_stddev / (imu_gyro_dynamic_bias_corr_time / 2) ** 0.5}"/>
+
   <gazebo reference="imu_link">
     <sensor name="imu" type="imu">
       <topic>imu</topic>
@@ -244,15 +249,15 @@
         <angular_velocity>
           <xacro:imu_axis_noise axis="x" stddev="${imu_gyro_noise_stddev}"
               bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
-              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_stddev="${gyro_dynamic_bias_sigma_gz}"
               dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
           <xacro:imu_axis_noise axis="y" stddev="${imu_gyro_noise_stddev}"
               bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
-              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_stddev="${gyro_dynamic_bias_sigma_gz}"
               dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
           <xacro:imu_axis_noise axis="z" stddev="${imu_gyro_noise_stddev}"
               bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
-              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_stddev="${gyro_dynamic_bias_sigma_gz}"
               dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
         </angular_velocity>
         <linear_acceleration>
