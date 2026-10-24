@@ -7,6 +7,7 @@ Usage:
   ros2 launch gnssd_bringup sim.launch.py drive:=true        # ... and drive the route
   ros2 launch gnssd_bringup sim.launch.py odom_noise:=false  # /odom == /odom_raw (baseline)
   ros2 launch gnssd_bringup sim.launch.py gui:=false         # no Gazebo window (batch runs)
+  ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer
 
 What gets started:
   gz sim                 the room world (server, plus GUI unless gui:=false)
@@ -14,14 +15,17 @@ What gets started:
   create                 spawns the robot into Gazebo from /robot_description
   parameter_bridge       topics listed in config/bridge.yaml
   odom_noise_node        /odom_raw -> /odom (noisy wheel odometry)
+  imu_covariance_node    /imu_raw -> /imu (adds the IMU covariances)
+  ekf_filter_node        base layer: /odom + /imu -> /odometry/filtered and TF odom -> base_link
   route_driver_node      only with drive:=true, follows config/route.yaml
   rviz2                  only with rviz:=true
 
-Nothing here publishes odom -> base_link; that is the EKF's job (later step).
-RViz therefore uses base_link as its fixed frame.
+The `seed` argument drives ALL randomness of a run: the odometry noise and,
+through `gz sim --seed`, the sensor noise in Gazebo (e.g. the gyro bias).
 """
 
 import os
+import xml.etree.ElementTree as ElementTree
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -40,6 +44,20 @@ def default_noise_seed(odom_noise_config):
         return str(yaml.safe_load(f)['odom_noise_node']['ros__parameters']['seed'])
 
 
+def xacro_property(xacro_file, name):
+    """
+    Read the value of a <xacro:property> from a xacro file.
+
+    Used to give nodes the same numbers as the robot model (e.g. the IMU
+    noise sigmas) without copying them into a second file.
+    """
+    xacro_ns = '{http://www.ros.org/wiki/xacro}'
+    for element in ElementTree.parse(xacro_file).getroot().iter(xacro_ns + 'property'):
+        if element.get('name') == name:
+            return float(element.get('value'))
+    raise KeyError(f'xacro property {name} not found in {xacro_file}')
+
+
 def warn_if_not_at_origin(context):
     """Mapping runs must start at the world origin; warn if the spawn pose is different."""
     spawn = [float(LaunchConfiguration(name).perform(context))
@@ -52,11 +70,15 @@ def warn_if_not_at_origin(context):
 
 
 def gazebo_command(context):
-    """Build the `gz sim` command: with or without the GUI."""
+    """Build the `gz sim` command: with or without the GUI, with a fixed seed."""
     world = LaunchConfiguration('world').perform(context)
     with_gui = LaunchConfiguration('gui').perform(context).lower() == 'true'
+    seed = LaunchConfiguration('seed').perform(context)
 
-    command = ['gz', 'sim', '-r']  # -r: start running, not paused
+    # -r: start running, not paused.
+    # --seed: seeds Gazebo's random generator, which draws all sensor noise
+    # (the gyro bias included), so the same seed gives the same sensor noise.
+    command = ['gz', 'sim', '-r', '--seed', seed]
     if not with_gui:
         # Server only. --headless-rendering lets the gpu_lidar render
         # without a window (EGL on the GPU).
@@ -72,9 +94,11 @@ def generate_launch_description():
     bringup_dir = get_package_share_directory('gnssd_bringup')
 
     robot_xacro = os.path.join(description_dir, 'urdf', 'robot.urdf.xacro')
+    robot_params = os.path.join(description_dir, 'urdf', 'robot_params.xacro')
     bridge_config = os.path.join(bringup_dir, 'config', 'bridge.yaml')
     odom_noise_config = os.path.join(bringup_dir, 'config', 'odom_noise.yaml')
     route_config = os.path.join(bringup_dir, 'config', 'route.yaml')
+    ekf_config = os.path.join(bringup_dir, 'config', 'ekf.yaml')
     rviz_config = os.path.join(bringup_dir, 'rviz', 'sim.rviz')
 
     arguments = [
@@ -91,11 +115,15 @@ def generate_launch_description():
             'drive', default_value='false',
             description='Start route_driver_node (drives config/route.yaml)'),
         DeclareLaunchArgument(
+            'ekf', default_value='true',
+            description='Start the EKF base layer (robot_localization)'),
+        DeclareLaunchArgument(
             'odom_noise', default_value='true',
             description='Add noise to wheel odometry (false = /odom equals /odom_raw)'),
         DeclareLaunchArgument(
             'seed', default_value=default_noise_seed(odom_noise_config),
-            description='Seed of the odometry noise (default: value in odom_noise.yaml)'),
+            description='Seed of the odometry noise and of the Gazebo sensor noise '
+                        '(default: value in odom_noise.yaml)'),
         # Start pose. Must stay (0, 0, 0) for mapping runs, see CLAUDE.md.
         DeclareLaunchArgument('spawn_x', default_value='0.0'),
         DeclareLaunchArgument('spawn_y', default_value='0.0'),
@@ -148,6 +176,27 @@ def generate_launch_description():
         output='screen',
     )
 
+    imu_covariance = Node(
+        package='gnssd_tools',
+        executable='imu_covariance_node',
+        parameters=[{
+            'use_sim_time': True,
+            # Same sigmas as the Gazebo IMU model.
+            'gyro_noise_stddev': xacro_property(robot_params, 'imu_gyro_noise_stddev'),
+            'accel_noise_stddev': xacro_property(robot_params, 'imu_accel_noise_stddev'),
+        }],
+        output='screen',
+    )
+
+    ekf = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        parameters=[ekf_config, {'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('ekf')),
+        output='screen',
+    )
+
     route_driver = Node(
         package='gnssd_tools',
         executable='route_driver_node',
@@ -172,6 +221,8 @@ def generate_launch_description():
         spawn_robot,
         bridge,
         odom_noise,
+        imu_covariance,
+        ekf,
         route_driver,
         rviz,
     ])

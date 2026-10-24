@@ -22,6 +22,7 @@ setup(
             'odom_noise_node = gnssd_tools.odom_noise_node:main',
             'route_driver_node = gnssd_tools.route_driver_node:main',
             'run_info_writer_node = gnssd_tools.run_info_writer_node:main',
+            'imu_covariance_node = gnssd_tools.imu_covariance_node:main',
         ],
     },
 )

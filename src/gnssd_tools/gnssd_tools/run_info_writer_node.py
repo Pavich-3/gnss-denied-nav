@@ -4,11 +4,13 @@ Run info writer: stores everything that identifies a recorded run.
 Started by record.launch.py next to `ros2 bag record`. It writes
 <bag folder>/run_info.yaml with
 
-* scenario name and seed;
+* scenario name and seed (the same seed is given to `gz sim --seed`, so it
+  also fixes the Gazebo sensor noise, e.g. the gyro bias);
 * the odometry noise parameters that odom_noise_node ACTUALLY used, including
   the scale errors it drew at start-up (read from the node's parameters);
+* the number of laps of route_driver_node;
 * the git commit of the repository (with "-dirty" if there are uncommitted
-  changes) and the Gazebo Sim version.
+  changes), whether that was allowed, and the Gazebo Sim version.
 
 With this file any run can be repeated exactly. The node exits after writing.
 """
@@ -24,6 +26,7 @@ from rclpy.parameter import parameter_value_to_python
 import yaml
 
 NOISE_NODE = 'odom_noise_node'
+DRIVER_NODE = 'route_driver_node'
 NOISE_PARAMETERS = [
     'enabled',
     'random_scale',
@@ -70,31 +73,34 @@ class RunInfoWriterNode(Node):
         self.scenario = self.declare_parameter('scenario', '').value
         self.seed = self.declare_parameter('seed', 0).value
         self.repo_dir = self.declare_parameter('repo_dir', '').value
+        self.allow_dirty = self.declare_parameter('allow_dirty', False).value
         self.timeout = self.declare_parameter('timeout', 30.0).value
 
-    def read_noise_parameters(self):
-        """Ask odom_noise_node for its parameters; return a dict, or None if it is not running."""
-        client = self.create_client(GetParameters, f'/{NOISE_NODE}/get_parameters')
+    def read_parameters(self, node_name, names):
+        """Ask another node for some of its parameters; return a dict, or None if no answer."""
+        client = self.create_client(GetParameters, f'/{node_name}/get_parameters')
         if not client.wait_for_service(timeout_sec=self.timeout):
+            self.get_logger().warning(f'{node_name} did not answer; its parameters are not stored')
             return None
-        future = client.call_async(GetParameters.Request(names=NOISE_PARAMETERS))
+        future = client.call_async(GetParameters.Request(names=names))
         rclpy.spin_until_future_complete(self, future, timeout_sec=self.timeout)
         if future.result() is None:
             return None
-        values = future.result().values
         return {name: parameter_value_to_python(value)
-                for name, value in zip(NOISE_PARAMETERS, values)}
+                for name, value in zip(names, future.result().values)}
 
     def write(self):
-        noise = self.read_noise_parameters()
-        if noise is None:
-            self.get_logger().warning(f'{NOISE_NODE} did not answer; noise parameters not stored')
+        noise = self.read_parameters(NOISE_NODE, NOISE_PARAMETERS)
+        driver = self.read_parameters(DRIVER_NODE, ['laps'])
 
         info = {
             'scenario': self.scenario,
             'seed': self.seed,
+            'gz_sim_seed': self.seed,
+            'laps': driver['laps'] if driver is not None else 'unavailable',
             'odom_noise': noise if noise is not None else 'unavailable',
             'git_commit': git_commit(self.repo_dir),
+            'allow_dirty': self.allow_dirty,
             'gz_sim_version': gz_sim_version(),
         }
         # The bag folder is created by `ros2 bag record`, which refuses to

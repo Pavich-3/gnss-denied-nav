@@ -34,10 +34,44 @@ Visualization Manager:
       Size (Pixels): 3
       Color Transformer: FlatColor
       Color: 255; 0; 0
+    # EKF estimate (green) and raw noisy wheel odometry (orange).
+    - Class: rviz_default_plugins/Odometry
+      Name: EKF /odometry/filtered
+      Enabled: true
+      Topic:
+        Value: /odometry/filtered
+      Keep: 300
+      Position Tolerance: 0.05
+      Angle Tolerance: 0.1
+      Shape:
+        Value: Arrow
+        Color: 0; 200; 0
+        Shaft Length: 0.2
+        Shaft Radius: 0.01
+        Head Length: 0.05
+        Head Radius: 0.03
+      Covariance:
+        Value: false
+    - Class: rviz_default_plugins/Odometry
+      Name: Wheel odometry /odom
+      Enabled: true
+      Topic:
+        Value: /odom
+      Keep: 300
+      Position Tolerance: 0.05
+      Angle Tolerance: 0.1
+      Shape:
+        Value: Arrow
+        Color: 255; 140; 0
+        Shaft Length: 0.2
+        Shaft Radius: 0.01
+        Head Length: 0.05
+        Head Radius: 0.03
+      Covariance:
+        Value: false
   Global Options:
-    # No odom -> base_link TF exists yet (no EKF), so everything is shown
-    # relative to the robot itself.
-    Fixed Frame: base_link
+    # odom -> base_link is published by the EKF, so the odom frame exists.
+    Fixed Frame: odom
     Background Color: 48; 48; 48
     Frame Rate: 30
   Tools:

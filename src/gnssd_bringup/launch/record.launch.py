@@ -26,7 +26,7 @@ from launch_ros.actions import Node
 # do not exist yet; rosbag2 starts recording them as soon as they appear.
 TOPICS = [
     '/clock', '/tf', '/tf_static',
-    '/scan', '/imu', '/joint_states',
+    '/scan', '/imu_raw', '/imu', '/joint_states',
     '/odom_raw', '/odom', '/cmd_vel',
     '/ground_truth',
     '/odometry/filtered', '/map',
@@ -56,6 +56,7 @@ def start_recording(context):
     scenario = LaunchConfiguration('scenario').perform(context)
     seed = LaunchConfiguration('seed').perform(context)
     out_dir = LaunchConfiguration('out_dir').perform(context)
+    allow_dirty = LaunchConfiguration('allow_dirty').perform(context).lower() == 'true'
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     bag_path = os.path.join(out_dir, f'{scenario}_seed{seed}_{timestamp}')
@@ -74,6 +75,7 @@ def start_recording(context):
             'scenario': scenario,
             'seed': int(seed),
             'repo_dir': repository_root(),
+            'allow_dirty': allow_dirty,
         }],
         output='screen',
     )
@@ -89,5 +91,7 @@ def generate_launch_description():
                               description='Noise seed of this run (used in the bag name)'),
         DeclareLaunchArgument('out_dir', default_value=os.path.join(repository_root(), 'bags'),
                               description='Folder where bag folders are created'),
+        DeclareLaunchArgument('allow_dirty', default_value='false',
+                              description='Stored in run_info.yaml (set by run.launch.py)'),
         OpaqueFunction(function=start_recording),
     ])

@@ -3,44 +3,72 @@ Run one complete experiment: simulation + route driver + recording.
 
 Usage:
   ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=1
+  ros2 launch gnssd_bringup run.launch.py scenario:=long seed:=1 laps:=10
   ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=1 odom_noise:=false
   ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=2 gui:=true
 
-One `seed` argument feeds both the odometry noise and the bag name, so the
-bag's run_info.yaml fully identifies the run. When the route driver has
-finished its laps and exits, everything is shut down and the bag is closed.
+One `seed` argument feeds the odometry noise, the Gazebo sensor noise and the
+bag name, so the bag's run_info.yaml fully identifies the run. When the route
+driver has finished its laps and exits, everything is shut down and the bag
+is closed.
+
+Reproducibility guard: the run refuses to start if the git repository has
+uncommitted changes, because run_info.yaml could then not say which code
+produced the bag. `allow_dirty:=true` overrides this (for quick tests); the
+choice is recorded in run_info.yaml.
 """
 
 import os
+import subprocess
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription, LogInfo,
-                            RegisterEventHandler, Shutdown)
+                            OpaqueFunction, RegisterEventHandler, Shutdown)
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.logging import get_logger
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def generate_launch_description():
-    bringup_dir = get_package_share_directory('gnssd_bringup')
-    launch_dir = os.path.join(bringup_dir, 'launch')
-    route_config = os.path.join(bringup_dir, 'config', 'route.yaml')
+def repository_root():
+    """Return the git repository that contains this launch file (via the --symlink-install link)."""
+    launch_dir = os.path.dirname(os.path.realpath(__file__))
+    result = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=launch_dir,
+                            capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else os.getcwd()
 
-    arguments = [
-        DeclareLaunchArgument('scenario', default_value='loop'),
-        DeclareLaunchArgument('seed', default_value='1'),
-        DeclareLaunchArgument('odom_noise', default_value='true'),
-        DeclareLaunchArgument('gui', default_value='false'),
-        DeclareLaunchArgument('rviz', default_value='false'),
-    ]
+
+def uncommitted_changes(repo_dir):
+    """Return the output of `git status --porcelain` (empty string = clean)."""
+    result = subprocess.run(['git', 'status', '--porcelain'], cwd=repo_dir,
+                            capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def launch_setup(context):
+    allow_dirty = LaunchConfiguration('allow_dirty').perform(context).lower() == 'true'
+    laps = LaunchConfiguration('laps').perform(context)
+
+    changes = uncommitted_changes(repository_root())
+    if changes and not allow_dirty:
+        get_logger('run.launch').error(
+            'The repository has uncommitted changes; refusing to record a run that '
+            'cannot be traced to a commit. Commit first, or pass allow_dirty:=true.\n'
+            + changes)
+        return [Shutdown(reason='uncommitted changes')]
+
+    launch_dir = os.path.join(get_package_share_directory('gnssd_bringup'), 'launch')
+    route_config = os.path.join(get_package_share_directory('gnssd_bringup'),
+                                'config', 'route.yaml')
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'sim.launch.py')),
         launch_arguments={
             'gui': LaunchConfiguration('gui'),
             'rviz': LaunchConfiguration('rviz'),
+            'ekf': LaunchConfiguration('ekf'),
             'odom_noise': LaunchConfiguration('odom_noise'),
             'seed': LaunchConfiguration('seed'),
             'drive': 'false',  # the driver is started below, so we can watch its exit
@@ -52,13 +80,19 @@ def generate_launch_description():
         launch_arguments={
             'scenario': LaunchConfiguration('scenario'),
             'seed': LaunchConfiguration('seed'),
+            'allow_dirty': str(allow_dirty).lower(),
         }.items(),
     )
+
+    # `laps` empty = use the value from route.yaml.
+    driver_parameters = [route_config, {'use_sim_time': True}]
+    if laps:
+        driver_parameters.append({'laps': int(laps)})
 
     route_driver = Node(
         package='gnssd_tools',
         executable='route_driver_node',
-        parameters=[route_config, {'use_sim_time': True}],
+        parameters=driver_parameters,
         output='screen',
     )
 
@@ -70,9 +104,20 @@ def generate_launch_description():
         ],
     ))
 
-    return LaunchDescription(arguments + [
-        simulation,
-        recording,
-        route_driver,
-        stop_when_route_is_done,
+    return [simulation, recording, route_driver, stop_when_route_is_done]
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument('scenario', default_value='loop'),
+        DeclareLaunchArgument('seed', default_value='1'),
+        DeclareLaunchArgument('laps', default_value='',
+                              description='Number of laps (empty = value in route.yaml)'),
+        DeclareLaunchArgument('odom_noise', default_value='true'),
+        DeclareLaunchArgument('ekf', default_value='true'),
+        DeclareLaunchArgument('gui', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('allow_dirty', default_value='false',
+                              description='Record even with uncommitted changes in git'),
+        OpaqueFunction(function=launch_setup),
     ])

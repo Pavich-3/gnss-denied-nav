@@ -218,14 +218,18 @@
     </sensor>
   </gazebo>
 
-  <!-- Noise block shared by the three gyro axes and by the three accelerometer axes. -->
-  <xacro:macro name="imu_axis_noise" params="axis stddev bias_mean bias_stddev">
+  <!-- Noise block shared by the three gyro axes and by the three accelerometer axes.
+       The dynamic (in-run) bias is optional; 0 switches it off. -->
+  <xacro:macro name="imu_axis_noise"
+               params="axis stddev bias_mean bias_stddev dynamic_bias_stddev:=0.0 dynamic_bias_corr_time:=0.0">
     <xacro:element xacro:name="${axis}">
       <noise type="gaussian">
         <mean>0.0</mean>
         <stddev>${stddev}</stddev>
         <bias_mean>${bias_mean}</bias_mean>
         <bias_stddev>${bias_stddev}</bias_stddev>
+        <dynamic_bias_stddev>${dynamic_bias_stddev}</dynamic_bias_stddev>
+        <dynamic_bias_correlation_time>${dynamic_bias_corr_time}</dynamic_bias_correlation_time>
       </noise>
     </xacro:element>
   </xacro:macro>
@@ -239,11 +243,17 @@
       <imu>
         <angular_velocity>
           <xacro:imu_axis_noise axis="x" stddev="${imu_gyro_noise_stddev}"
-              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
+              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
           <xacro:imu_axis_noise axis="y" stddev="${imu_gyro_noise_stddev}"
-              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
+              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
           <xacro:imu_axis_noise axis="z" stddev="${imu_gyro_noise_stddev}"
-              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"/>
+              bias_mean="${imu_gyro_bias_mean}" bias_stddev="${imu_gyro_bias_stddev}"
+              dynamic_bias_stddev="${imu_gyro_dynamic_bias_stddev}"
+              dynamic_bias_corr_time="${imu_gyro_dynamic_bias_corr_time}"/>
         </angular_velocity>
         <linear_acceleration>
           <xacro:imu_axis_noise axis="x" stddev="${imu_accel_noise_stddev}"

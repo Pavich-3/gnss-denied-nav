@@ -23,7 +23,8 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | Topic | Type | Source |
 |---|---|---|
 | `/scan` | sensor_msgs/LaserScan | simulator lidar |
-| `/imu` | sensor_msgs/Imu | simulator IMU |
+| `/imu_raw` | sensor_msgs/Imu | simulator IMU, covariances all zero |
+| `/imu` | sensor_msgs/Imu | imu_covariance_node: /imu_raw + covariances from robot_params.xacro (EKF input) |
 | `/odom_raw` | nav_msgs/Odometry | directly from the simulator |
 | `/odom` | nav_msgs/Odometry | odometry noise node (EKF input) |
 | `/odometry/filtered` | nav_msgs/Odometry | EKF output |
@@ -74,6 +75,13 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
   plot: Ubuntu's python3-matplotlib (needed by rqt_plot) ships a regular
   `mpl_toolkits` package that shadows the one of pip's matplotlib 3.10.
   The venv does not need ROS (evo reads bags through `rosbags`).
+- NEVER run `sudo apt autoremove`: only `ros-humble-ros-base` is marked as
+  manually installed, so apt lists ~219 ROS packages (ros2topic, ros2run,
+  rqt, tf2_tools, ...) as removable. Installed ROS packages can come from
+  different repository snapshots: robot_localization 3.5.4 needed
+  `ros-humble-diagnostic-updater` 4.0.7 (`apt-get install --only-upgrade`).
+  If a node dies with "error while loading shared libraries", check for
+  such a version mismatch first.
 - `~/.bashrc` sources `/opt/ros/humble` and also the user's other workspace
   `~/ros2_ws/install` (unrelated packages). No Noetic paths are present.
 

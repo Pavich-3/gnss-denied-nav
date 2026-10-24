@@ -60,12 +60,34 @@
   <xacro:property name="imu_z_offset" value="0.02"/>
   <xacro:property name="imu_update_rate" value="100"/>   <!-- Hz -->
 
-  <!-- PLACEHOLDER noise values. They will be replaced with numbers taken
-       from the datasheet of the real IMU. In Gazebo the bias is drawn once
-       at start-up from N(bias_mean, bias_stddev) and then stays constant. -->
-  <xacro:property name="imu_gyro_noise_stddev"  value="0.005"/>    <!-- rad/s -->
-  <xacro:property name="imu_gyro_bias_mean"     value="0.0005"/>   <!-- rad/s -->
-  <xacro:property name="imu_gyro_bias_stddev"   value="0.0001"/>   <!-- rad/s -->
+  <!-- Gyroscope: model of a CALIBRATED MEMS gyro of the Bosch BMI088 class.
+
+       White noise. Datasheet noise density ~0.014 deg/s/sqrt(Hz). The IMU
+       publishes at 100 Hz, so the bandwidth is ~50 Hz:
+         0.014 deg/s/sqrt(Hz) * sqrt(50 Hz) = 0.099 deg/s = 0.0017 rad/s.
+
+       Bias. The large turn-on offset of a MEMS gyro is assumed to be removed
+       before every run by averaging the gyro while the robot stands still.
+       What remains is a small residual, modelled as
+         bias_mean = 0, bias_stddev = 1.0e-4 rad/s (about 0.02 deg/s).
+       Gazebo draws this bias once per run from N(bias_mean, bias_stddev)
+       (with a random sign) and keeps it; the seed option of gz sim makes the draw
+       repeatable, see sim.launch.py.
+
+       In-run bias instability (dynamic bias). BMI088 class: ~2 deg/h
+       = 1e-5 rad/s. gz-sensors 8 supports it as a first-order Gauss-Markov
+       process (dynamic_bias_stddev, dynamic_bias_correlation_time). The
+       correlation time is chosen longer than a run, so it acts as a slow
+       drift of the bias. -->
+  <xacro:property name="imu_gyro_noise_stddev"            value="0.0017"/>   <!-- rad/s -->
+  <xacro:property name="imu_gyro_bias_mean"               value="0.0"/>      <!-- rad/s -->
+  <xacro:property name="imu_gyro_bias_stddev"             value="1.0e-4"/>   <!-- rad/s -->
+  <xacro:property name="imu_gyro_dynamic_bias_stddev"     value="1.0e-5"/>   <!-- rad/s -->
+  <xacro:property name="imu_gyro_dynamic_bias_corr_time"  value="1000.0"/>   <!-- s -->
+
+  <!-- Accelerometer: NOT FUSED BY THE EKF (only the gyro z rate is used).
+       The values are the old placeholders and only matter if the
+       accelerometer is used later. -->
   <xacro:property name="imu_accel_noise_stddev" value="0.02"/>     <!-- m/s^2 -->
   <xacro:property name="imu_accel_bias_mean"    value="0.01"/>     <!-- m/s^2 -->
   <xacro:property name="imu_accel_bias_stddev"  value="0.001"/>    <!-- m/s^2 -->

@@ -20,7 +20,8 @@
   gz_type_name: gz.msgs.LaserScan
   direction: GZ_TO_ROS
 
-- ros_topic_name: /imu
+# Raw IMU without covariances; imu_covariance_node republishes it as /imu.
+- ros_topic_name: /imu_raw
   gz_topic_name: /imu
   ros_type_name: sensor_msgs/msg/Imu
   gz_type_name: gz.msgs.IMU
