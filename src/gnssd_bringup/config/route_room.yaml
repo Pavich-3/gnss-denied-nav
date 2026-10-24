@@ -1,4 +1,4 @@
-# Parameters of route_driver_node (gnssd_tools).
+# Parameters of route_driver_node (gnssd_tools) for world:=room (room.sdf).
 #
 # The route is a closed loop around the central island of room.sdf,
 # counter-clockwise, starting and ending at the origin (the robot's start).

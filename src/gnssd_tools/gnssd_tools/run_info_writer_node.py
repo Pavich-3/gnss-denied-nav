@@ -4,7 +4,7 @@ Run info writer: stores everything that identifies a recorded run.
 Started by record.launch.py next to `ros2 bag record`. It writes
 <bag folder>/run_info.yaml with
 
-* scenario name and seed (the same seed is given to `gz sim --seed`, so it
+* world, scenario name and seed (the same seed is given to `gz sim --seed`, so it
   also fixes the Gazebo sensor noise, e.g. the gyro bias);
 * the odometry noise parameters that odom_noise_node ACTUALLY used, including
   the scale errors it drew at start-up (read from the node's parameters);
@@ -74,6 +74,7 @@ class RunInfoWriterNode(Node):
         self.seed = self.declare_parameter('seed', 0).value
         self.repo_dir = self.declare_parameter('repo_dir', '').value
         self.allow_dirty = self.declare_parameter('allow_dirty', False).value
+        self.world = self.declare_parameter('world', '').value
         self.timeout = self.declare_parameter('timeout', 30.0).value
 
     def read_parameters(self, node_name, names):
@@ -94,6 +95,7 @@ class RunInfoWriterNode(Node):
         driver = self.read_parameters(DRIVER_NODE, ['laps'])
 
         info = {
+            'world': self.world,
             'scenario': self.scenario,
             'seed': self.seed,
             'gz_sim_seed': self.seed,

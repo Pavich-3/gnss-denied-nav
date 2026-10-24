@@ -17,13 +17,15 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_description/urdf/robot_params.xacro`: all robot dimensions, masses and sensor/noise parameters.
 - `src/gnssd_description/urdf/robot.urdf.xacro`: robot links, joints, Gazebo sensors (gpu_lidar, imu) and DiffDrive/JointStatePublisher plugins.
 - `src/gnssd_description/worlds/room.sdf`: 10 x 8 m test room with a central island for a loop route.
+- `src/gnssd_description/worlds/warehouse.sdf`: 30 x 20 m warehouse with four rack rows and a long repetitive aisle.
 - `src/gnssd_bringup/launch/sim.launch.py`: starts Gazebo (seeded), robot, bridge, odometry noise, IMU covariance, EKF, slam_toolbox, optional route driver and RViz.
 - `src/gnssd_bringup/launch/record.launch.py`: records one run (rosbag2, sqlite3) plus run_info.yaml, loop_closures.yaml, resources.csv.
 - `src/gnssd_bringup/launch/run.launch.py`: one complete experiment (sim + route driver + recording), stops when the route is done; refuses to run with uncommitted changes.
 - `src/gnssd_bringup/config/ekf.yaml`: base layer EKF (robot_localization): fuses vx, vyaw from /odom and vyaw from /imu.
 - `src/gnssd_bringup/config/slam_toolbox.yaml`: correction layer (slam_toolbox online async mapping); package defaults + 3 marked changes.
 - `src/gnssd_bringup/config/resource_logger.yaml`: list of system processes whose CPU/RSS is logged.
-- `src/gnssd_bringup/config/route.yaml`: waypoints and controller parameters of the route driver.
+- `src/gnssd_bringup/config/route_room.yaml`: route (waypoints + controller parameters) for world:=room.
+- `src/gnssd_bringup/config/route_warehouse.yaml`: one 178.6 m lap through the warehouse for world:=warehouse.
 - `src/gnssd_bringup/config/bridge.yaml`: topics bridged between Gazebo and ROS 2.
 - `src/gnssd_bringup/config/odom_noise.yaml`: parameters of the odometry noise node.
 - `src/gnssd_bringup/rviz/sim.rviz`: RViz view with robot model, TF and lidar scan.
@@ -37,6 +39,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/geometry.py`: small 2D helpers (yaw from quaternion, angle wrapping).
 - `src/gnssd_tools/scripts/compare_odom.py`: plots `/odom` vs `/odom_raw` from a bag and reports the drift.
 - `src/gnssd_tools/scripts/run_batch.sh`: runs one scenario for a range of seeds and writes bags/index.csv.
+- `src/gnssd_tools/scripts/error_vs_distance.py`: position error vs distance from the start and vs travelled distance (TUM inputs).
 - `src/gnssd_tools/scripts/estimate_gyro_bias.py`: estimates the per-run gyro z bias from a bag (/imu_raw vs /ground_truth).
 - `src/gnssd_tools/scripts/map_to_png.py`: saves the last /map of a bag as a PNG (optionally with the ground truth).
 - `src/gnssd_tools/scripts/summarize_resources.py`: mean/max CPU and RSS per process and system from resources.csv.

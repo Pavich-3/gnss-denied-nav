@@ -7,11 +7,12 @@ Usage:
   ros2 launch gnssd_bringup sim.launch.py drive:=true        # ... and drive the route
   ros2 launch gnssd_bringup sim.launch.py odom_noise:=false  # /odom == /odom_raw (baseline)
   ros2 launch gnssd_bringup sim.launch.py gui:=false         # no Gazebo window (batch runs)
+  ros2 launch gnssd_bringup sim.launch.py world:=warehouse   # the 30 x 20 m warehouse
   ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer (and SLAM)
   ros2 launch gnssd_bringup sim.launch.py slam:=false        # base layer only, no correction layer
 
 What gets started:
-  gz sim                 the room world (server, plus GUI unless gui:=false)
+  gz sim                 worlds/<world>.sdf (server, plus GUI unless gui:=false)
   robot_state_publisher  URDF -> /robot_description and TF of the robot's own links
   create                 spawns the robot into Gazebo from /robot_description
   parameter_bridge       topics listed in config/bridge.yaml
@@ -20,7 +21,7 @@ What gets started:
   ekf_filter_node        base layer: /odom + /imu -> /odometry/filtered and TF odom -> base_link
   slam_toolbox           correction layer: /scan -> /map and TF map -> odom
                          (started once the EKF process has started; it needs odom -> base_link)
-  route_driver_node      only with drive:=true, follows config/route.yaml
+  route_driver_node      only with drive:=true, follows config/route_<world>.yaml
   rviz2                  only with rviz:=true
 
 The `seed` argument drives ALL randomness of a run: the odometry noise and,
@@ -74,9 +75,19 @@ def warn_if_not_at_origin(context):
     return []
 
 
+def world_file(world_name):
+    """Return worlds/<world_name>.sdf of gnssd_description; fail clearly for an unknown name."""
+    path = os.path.join(get_package_share_directory('gnssd_description'),
+                        'worlds', f'{world_name}.sdf')
+    if not os.path.isfile(path):
+        raise ValueError(f'Unknown world "{world_name}": {path} does not exist '
+                         '(use world:=room or world:=warehouse)')
+    return path
+
+
 def gazebo_command(context):
     """Build the `gz sim` command: with or without the GUI, with a fixed seed."""
-    world = LaunchConfiguration('world').perform(context)
+    world = world_file(LaunchConfiguration('world').perform(context))
     with_gui = LaunchConfiguration('gui').perform(context).lower() == 'true'
     seed = LaunchConfiguration('seed').perform(context)
 
@@ -94,6 +105,25 @@ def gazebo_command(context):
     return [ExecuteProcess(cmd=command, output='screen', on_exit=Shutdown())]
 
 
+def rviz_node(context, rviz_config):
+    """
+    Start RViz with a fixed frame that exists in this configuration.
+
+    The config file uses `map` (published by slam_toolbox). Without SLAM there
+    is no map frame, so RViz would drop every message; use `odom` instead.
+    """
+    with_slam = LaunchConfiguration('slam').perform(context).lower() == 'true'
+    fixed_frame = 'map' if with_slam else 'odom'
+    return [Node(
+        package='rviz2',
+        executable='rviz2',
+        arguments=['-d', rviz_config, '-f', fixed_frame],
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('rviz')),
+        output='screen',
+    )]
+
+
 def generate_launch_description():
     description_dir = get_package_share_directory('gnssd_description')
     bringup_dir = get_package_share_directory('gnssd_bringup')
@@ -102,15 +132,18 @@ def generate_launch_description():
     robot_params = os.path.join(description_dir, 'urdf', 'robot_params.xacro')
     bridge_config = os.path.join(bringup_dir, 'config', 'bridge.yaml')
     odom_noise_config = os.path.join(bringup_dir, 'config', 'odom_noise.yaml')
-    route_config = os.path.join(bringup_dir, 'config', 'route.yaml')
+    # Each world has its own route: config/route_<world>.yaml.
+    route_config = [os.path.join(bringup_dir, 'config', 'route_'),
+                    LaunchConfiguration('world'), '.yaml']
     ekf_config = os.path.join(bringup_dir, 'config', 'ekf.yaml')
     slam_config = os.path.join(bringup_dir, 'config', 'slam_toolbox.yaml')
     rviz_config = os.path.join(bringup_dir, 'rviz', 'sim.rviz')
 
     arguments = [
         DeclareLaunchArgument(
-            'world', default_value=os.path.join(description_dir, 'worlds', 'room.sdf'),
-            description='Gazebo world file'),
+            'world', default_value='room',
+            description='World name: room or warehouse (worlds/<world>.sdf, '
+                        'config/route_<world>.yaml)'),
         DeclareLaunchArgument(
             'gui', default_value='true',
             description='Show the Gazebo window (false = server only, for batch runs)'),
@@ -119,7 +152,7 @@ def generate_launch_description():
             description='Start RViz with config rviz/sim.rviz'),
         DeclareLaunchArgument(
             'drive', default_value='false',
-            description='Start route_driver_node (drives config/route.yaml)'),
+            description='Start route_driver_node (drives config/route_<world>.yaml)'),
         DeclareLaunchArgument(
             'ekf', default_value='true',
             description='Start the EKF base layer (robot_localization)'),
@@ -225,14 +258,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    rviz = Node(
-        package='rviz2',
-        executable='rviz2',
-        arguments=['-d', rviz_config],
-        parameters=[{'use_sim_time': True}],
-        condition=IfCondition(LaunchConfiguration('rviz')),
-        output='screen',
-    )
+    rviz = OpaqueFunction(function=rviz_node, args=[rviz_config])
 
     return LaunchDescription(arguments + [
         OpaqueFunction(function=warn_if_not_at_origin),

@@ -55,6 +55,10 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - Corrected estimate = TF map -> base_link (slam_toolbox map -> odom composed with EKF
   odom -> base_link), extracted with `src/gnssd_tools/scripts/tf_to_tum.py <bag> map base_link`
   (evo in the venv cannot read /tf). Base layer = /odometry/filtered.
+- Worlds: `world:=room|warehouse` selects `worlds/<world>.sdf` and
+  `config/route_<world>.yaml`. Scenario names: room_loop, room_long, warehouse_loop.
+  The system configuration (ekf.yaml, slam_toolbox.yaml, noise models) is the same in
+  every world, so results are comparable; never tune per world.
 - One run = one bag in `bags/<scenario>_seed<seed>_<timestamp>/` with
   `run_info.yaml`; started with `ros2 launch gnssd_bringup run.launch.py`.
 

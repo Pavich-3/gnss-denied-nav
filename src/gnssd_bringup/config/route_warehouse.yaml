@@ -1,0 +1,52 @@
+# Parameters of route_driver_node (gnssd_tools) for world:=warehouse (warehouse.sdf).
+#
+# One lap through the warehouse, starting and ending at the origin:
+#   south main aisle east (y 0) -> aisle 1 west (y 3.9) -> aisle 2 east (y 7.5,
+#   the long repetitive aisle between rows B and C) -> aisle 3 west (y 11.1)
+#   -> north area east (y 14.75, far side, ~29.7 m from the start)
+#   -> east cross aisle south (x 26) -> south main aisle west, back to the start.
+#
+#   y 14.75  (1.5)-------------------------------------->(25.5)
+#   y 11.1   (1.5)<--------------------------------------(25.5)   |
+#   y  7.5   (1.5)-------------------------------------->(25.5)   | x 26
+#   y  3.9   (1.5)<--------------------------------------(25.5)   v
+#   y  0     S(0)--------------------------------------->(25.5)<--
+#
+# Corners are cut at 45 deg (0.5 m). Length 178.6 m. Smallest distance from
+# the path centre line to a rack/wall/obstacle: 1.20 m (1.06 m from the robot's
+# side), checked when the route was made (docs/progress.md, Step 4b).
+# Controller parameters are identical to route_room.yaml.
+
+route_driver_node:
+  ros__parameters:
+    # Flat list x0, y0, x1, y1, ... ; the first point is the start (0, 0),
+    # the loop closes back to it.
+    waypoints: [0.0, 0.0,
+                25.5, 0.0,
+                26.0, 0.5,
+                26.0, 3.4,
+                25.5, 3.9,
+                1.5, 3.9,
+                1.0, 4.4,
+                1.0, 7.0,
+                1.5, 7.5,
+                25.5, 7.5,
+                26.0, 8.0,
+                26.0, 10.6,
+                25.5, 11.1,
+                1.5, 11.1,
+                1.0, 11.6,
+                1.0, 14.25,
+                1.5, 14.75,
+                25.5, 14.75,
+                26.0, 14.25,
+                26.0, 0.5,
+                25.5, 0.0]
+
+    laps: 1
+    linear_speed: 0.2          # m/s
+    max_angular_speed: 0.6     # rad/s
+    lookahead_distance: 0.5    # m
+    goal_tolerance: 0.05       # m
+    control_rate: 20.0         # Hz
+    start_delay: 3.0           # s

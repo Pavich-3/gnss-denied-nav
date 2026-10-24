@@ -2,10 +2,10 @@
 Run one complete experiment: simulation + route driver + recording.
 
 Usage:
-  ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=1
-  ros2 launch gnssd_bringup run.launch.py scenario:=long seed:=1 laps:=10
-  ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=1 odom_noise:=false
-  ros2 launch gnssd_bringup run.launch.py scenario:=loop seed:=2 gui:=true
+  ros2 launch gnssd_bringup run.launch.py scenario:=room_loop seed:=1
+  ros2 launch gnssd_bringup run.launch.py scenario:=room_long seed:=1 laps:=10
+  ros2 launch gnssd_bringup run.launch.py world:=warehouse scenario:=warehouse_loop seed:=1
+  ros2 launch gnssd_bringup run.launch.py scenario:=room_loop seed:=2 gui:=true
 
 One `seed` argument feeds the odometry noise, the Gazebo sensor noise and the
 bag name, so the bag's run_info.yaml fully identifies the run. When the route
@@ -50,6 +50,7 @@ def uncommitted_changes(repo_dir):
 def launch_setup(context):
     allow_dirty = LaunchConfiguration('allow_dirty').perform(context).lower() == 'true'
     laps = LaunchConfiguration('laps').perform(context)
+    world = LaunchConfiguration('world').perform(context)
 
     changes = uncommitted_changes(repository_root())
     if changes and not allow_dirty:
@@ -61,11 +62,12 @@ def launch_setup(context):
 
     launch_dir = os.path.join(get_package_share_directory('gnssd_bringup'), 'launch')
     route_config = os.path.join(get_package_share_directory('gnssd_bringup'),
-                                'config', 'route.yaml')
+                                'config', f'route_{world}.yaml')
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'sim.launch.py')),
         launch_arguments={
+            'world': world,
             'gui': LaunchConfiguration('gui'),
             'rviz': LaunchConfiguration('rviz'),
             'ekf': LaunchConfiguration('ekf'),
@@ -80,11 +82,12 @@ def launch_setup(context):
         launch_arguments={
             'scenario': LaunchConfiguration('scenario'),
             'seed': LaunchConfiguration('seed'),
+            'world': world,
             'allow_dirty': str(allow_dirty).lower(),
         }.items(),
     )
 
-    # `laps` empty = use the value from route.yaml.
+    # `laps` empty = use the value from route_<world>.yaml.
     driver_parameters = [route_config, {'use_sim_time': True}]
     if laps:
         driver_parameters.append({'laps': int(laps)})
@@ -109,10 +112,12 @@ def launch_setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('scenario', default_value='loop'),
+        DeclareLaunchArgument('world', default_value='room',
+                              description='room or warehouse (world file and route)'),
+        DeclareLaunchArgument('scenario', default_value='room_loop'),
         DeclareLaunchArgument('seed', default_value='1'),
         DeclareLaunchArgument('laps', default_value='',
-                              description='Number of laps (empty = value in route.yaml)'),
+                              description='Number of laps (empty = value in route_<world>.yaml)'),
         DeclareLaunchArgument('odom_noise', default_value='true'),
         DeclareLaunchArgument('ekf', default_value='true'),
         DeclareLaunchArgument('gui', default_value='false'),

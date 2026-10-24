@@ -61,6 +61,7 @@ def start_recording(context):
     seed = LaunchConfiguration('seed').perform(context)
     out_dir = LaunchConfiguration('out_dir').perform(context)
     allow_dirty = LaunchConfiguration('allow_dirty').perform(context).lower() == 'true'
+    world = LaunchConfiguration('world').perform(context)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     bag_path = os.path.join(out_dir, f'{scenario}_seed{seed}_{timestamp}')
@@ -80,6 +81,7 @@ def start_recording(context):
             'seed': int(seed),
             'repo_dir': repository_root(),
             'allow_dirty': allow_dirty,
+            'world': world,
         }],
         output='screen',
     )
@@ -117,6 +119,8 @@ def generate_launch_description():
                               description='Noise seed of this run (used in the bag name)'),
         DeclareLaunchArgument('out_dir', default_value=os.path.join(repository_root(), 'bags'),
                               description='Folder where bag folders are created'),
+        DeclareLaunchArgument('world', default_value='room',
+                              description='World name, stored in run_info.yaml'),
         DeclareLaunchArgument('allow_dirty', default_value='false',
                               description='Stored in run_info.yaml (set by run.launch.py)'),
         OpaqueFunction(function=start_recording),
