@@ -22,7 +22,8 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 ## Topics
 | Topic | Type | Source |
 |---|---|---|
-| `/scan` | sensor_msgs/LaserScan | simulator lidar |
+| `/scan_raw` | sensor_msgs/LaserScan | simulator lidar (bridge) |
+| `/scan` | sensor_msgs/LaserScan | scan_gate_node (stand): /scan_raw relayed unchanged, dropped in dropout windows |
 | `/imu_raw` | sensor_msgs/Imu | simulator IMU, covariances all zero |
 | `/imu` | sensor_msgs/Imu | imu_covariance_node: /imu_raw + covariances from robot_params.xacro (EKF input) |
 | `/odom_raw` | nav_msgs/Odometry | directly from the simulator |
@@ -34,6 +35,7 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | `/cmd_vel` | geometry_msgs/Twist | teleop / Nav2 |
 | `/joint_states` | sensor_msgs/JointState | simulator (wheel joints) |
 | `/clock` | rosgraph_msgs/Clock | simulator |
+| `/diagnostics` | diagnostic_msgs/DiagnosticArray | sensor_monitor_node (sensor states), ekf_filter_node |
 
 ## Evaluation conventions
 - ATE is computed WITHOUT alignment: `evo_ape bag2 <bag> /ground_truth <est>`
@@ -94,8 +96,25 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - `~/.bashrc` sources `/opt/ros/humble` and also the user's other workspace
   `~/ros2_ws/install` (unrelated packages). No Noetic paths are present.
 
+## System vs stand
+- SYSTEM (what would run on the real robot; measured by resource_logger):
+  ekf_filter_node, slam_toolbox (async_slam_toolbox_node), sensor_monitor_node
+  (later map_manager_node).
+- STAND (simulation and evaluation only): gz sim, parameter_bridge,
+  odom_noise_node, imu_covariance_node, scan_gate_node, route_driver_node,
+  recorder, run_info_writer_node, loop_closure_monitor_node,
+  resource_logger_node, node_census_node, RViz.
+- Every own node starts through gnssd_tools/node_runner.py (rclpy SIGINT
+  handler off -> clean shutdown, no Traceback).
+
 ## Conventions
-- `use_sim_time: true` everywhere (every node, every launch file).
+- `use_sim_time: true` everywhere (every node, every launch file). Exception:
+  scan_gate_node takes sim time from the scan header stamps and runs without
+  use_sim_time (documented in the node).
+- Gazebo publishes /clock at 1 kHz; with use_sim_time every rclpy node handles all
+  of it: ~43 % of one core per Python node (measured in Step 5). This is a
+  simulation artifact (no /clock on the real robot) and must be reported
+  separately in the resource numbers of Python system nodes.
 - Own nodes are Python (rclpy), in `gnssd_tools`.
 - All tunable values go into YAML under `src/gnssd_bringup/config/`; never
   hard-code them.

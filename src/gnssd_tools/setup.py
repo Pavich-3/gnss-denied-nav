@@ -25,6 +25,9 @@ setup(
             'imu_covariance_node = gnssd_tools.imu_covariance_node:main',
             'loop_closure_monitor_node = gnssd_tools.loop_closure_monitor_node:main',
             'resource_logger_node = gnssd_tools.resource_logger_node:main',
+            'sensor_monitor_node = gnssd_tools.sensor_monitor_node:main',
+            'scan_gate_node = gnssd_tools.scan_gate_node:main',
+            'node_census_node = gnssd_tools.node_census_node:main',
         ],
     },
 )

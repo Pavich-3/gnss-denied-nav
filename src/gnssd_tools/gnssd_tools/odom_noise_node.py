@@ -27,11 +27,11 @@ import random
 
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import ParameterDescriptor
-import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 
 from gnssd_tools.geometry import normalize_angle, yaw_from_quaternion
+from gnssd_tools.node_runner import run_node
 
 # Variance written for the axes a differential-drive robot cannot move along
 # (sideways, vertical, roll, pitch). Tiny = "we are sure this is zero".
@@ -179,15 +179,7 @@ class OdomNoiseNode(Node):
 
 
 def main():
-    rclpy.init()
-    node = OdomNoiseNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.try_shutdown()
+    run_node(OdomNoiseNode)
 
 
 if __name__ == '__main__':

@@ -15,7 +15,8 @@ purpose: on a real robot it would not exist. Later steps add their nodes
 (sensor_monitor_node, map_manager_node) to the parameter list.
 
 A process matches a name if its command line contains `__node:=<name>`
-(node renamed in a launch file) or its executable is called <name>.
+(node renamed in a launch file) or its executable is called <name> (for
+Python nodes the script started by python3).
 Processes that start later are picked up when they appear.
 
 Output: <output_file> (CSV), one row per process and sample:
@@ -29,9 +30,10 @@ import os
 import time
 
 import psutil
-import rclpy
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
+
+from gnssd_tools.node_runner import run_node
 
 FIELDS = ['wall_time', 'sim_time', 'process', 'pid', 'cpu_core_pct', 'cpu_total_pct', 'rss_mb']
 
@@ -44,7 +46,8 @@ def matches(process, name):
         return False
     if f'__node:={name}' in command_line:
         return True
-    return bool(command_line) and os.path.basename(command_line[0]) == name
+    # C++ nodes: the executable itself; Python nodes: "python3 <path>/<name>".
+    return any(os.path.basename(part) == name for part in command_line[:2])
 
 
 class ResourceLoggerNode(Node):
@@ -116,16 +119,7 @@ class ResourceLoggerNode(Node):
 
 
 def main():
-    rclpy.init()
-    node = ResourceLoggerNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.close()
-        node.destroy_node()
-        rclpy.try_shutdown()
+    run_node(ResourceLoggerNode, on_shutdown=ResourceLoggerNode.close)
 
 
 if __name__ == '__main__':

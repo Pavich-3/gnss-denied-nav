@@ -39,7 +39,9 @@ import time
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 
 from gnssd_tools.geometry import yaw_from_quaternion
 
@@ -231,14 +233,15 @@ class RouteDriverNode(Node):
 
 
 def main():
-    rclpy.init()
+    # Same clean-shutdown setup as node_runner.run_node (see its docstring).
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = RouteDriverNode()
     try:
         while rclpy.ok() and not node.done:
             rclpy.spin_once(node, timeout_sec=0.1)
         # Give the last zero-velocity message a moment to leave the process.
         time.sleep(0.5)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

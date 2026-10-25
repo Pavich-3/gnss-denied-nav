@@ -8,6 +8,7 @@ Usage:
   ros2 launch gnssd_bringup sim.launch.py odom_noise:=false  # /odom == /odom_raw (baseline)
   ros2 launch gnssd_bringup sim.launch.py gui:=false         # no Gazebo window (batch runs)
   ros2 launch gnssd_bringup sim.launch.py world:=warehouse   # the 30 x 20 m warehouse
+  ros2 launch gnssd_bringup sim.launch.py scan_dropout:="[[140,200]]"   # lidar off 140-200 s
   ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer (and SLAM)
   ros2 launch gnssd_bringup sim.launch.py slam:=false        # base layer only, no correction layer
 
@@ -16,8 +17,11 @@ What gets started:
   robot_state_publisher  URDF -> /robot_description and TF of the robot's own links
   create                 spawns the robot into Gazebo from /robot_description
   parameter_bridge       topics listed in config/bridge.yaml
-  odom_noise_node        /odom_raw -> /odom (noisy wheel odometry)
-  imu_covariance_node    /imu_raw -> /imu (adds the IMU covariances)
+  odom_noise_node        stand: /odom_raw -> /odom (noisy wheel odometry)
+  imu_covariance_node    stand: /imu_raw -> /imu (adds the IMU covariances)
+  scan_gate_node         stand: /scan_raw -> /scan, drops scans in the scan_dropout windows
+                         (always in the chain; no windows = pass-through)
+  sensor_monitor_node    system: reports lost sensor streams on /diagnostics
   ekf_filter_node        base layer: /odom + /imu -> /odometry/filtered and TF odom -> base_link
   slam_toolbox           correction layer: /scan -> /map and TF map -> odom
                          (started once the EKF process has started; it needs odom -> base_link)
@@ -137,6 +141,7 @@ def generate_launch_description():
                     LaunchConfiguration('world'), '.yaml']
     ekf_config = os.path.join(bringup_dir, 'config', 'ekf.yaml')
     slam_config = os.path.join(bringup_dir, 'config', 'slam_toolbox.yaml')
+    sensor_monitor_config = os.path.join(bringup_dir, 'config', 'sensor_monitor.yaml')
     rviz_config = os.path.join(bringup_dir, 'rviz', 'sim.rviz')
 
     arguments = [
@@ -159,6 +164,13 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'slam', default_value='true',
             description='Start the slam_toolbox correction layer (needs ekf:=true)'),
+        DeclareLaunchArgument(
+            'sensor_monitor', default_value='true',
+            description='Start sensor_monitor_node (system)'),
+        DeclareLaunchArgument(
+            'scan_dropout', default_value='[]',
+            description='Lidar dropout windows, sim time: "[[t_start,t_end], ...]", '
+                        't_end -1 = until the end'),
         DeclareLaunchArgument(
             'odom_noise', default_value='true',
             description='Add noise to wheel odometry (false = /odom equals /odom_raw)'),
@@ -230,6 +242,28 @@ def generate_launch_description():
         output='screen',
     )
 
+    scan_gate = Node(
+        package='gnssd_tools',
+        executable='scan_gate_node',
+        parameters=[{
+            # Exception to "use_sim_time everywhere": the gate takes the sim
+            # time from the scan header stamps and never reads the clock, so
+            # it does not need to process the 1 kHz /clock (see its docstring).
+            'use_sim_time': False,
+            'dropout_windows': ParameterValue(LaunchConfiguration('scan_dropout'),
+                                              value_type=str),
+        }],
+        output='screen',
+    )
+
+    sensor_monitor = Node(
+        package='gnssd_tools',
+        executable='sensor_monitor_node',
+        parameters=[sensor_monitor_config, {'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('sensor_monitor')),
+        output='screen',
+    )
+
     ekf = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -268,7 +302,9 @@ def generate_launch_description():
         bridge,
         odom_noise,
         imu_covariance,
+        scan_gate,
         ekf,
+        sensor_monitor,
         start_slam_after_ekf,
         route_driver,
         rviz,

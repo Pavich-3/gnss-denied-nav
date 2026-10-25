@@ -4,9 +4,9 @@
 # The simulation stand (gz sim, bridge, odom_noise_node, imu_covariance_node,
 # route_driver_node, recorder, RViz) is deliberately not listed.
 # A name matches a process started with `__node:=<name>` or an executable
-# with that name. Later steps add sensor_monitor_node and map_manager_node.
+# with that name. sensor_monitor_node added in Step 5; map_manager_node follows later.
 
 resource_logger_node:
   ros__parameters:
-    processes: ['ekf_filter_node', 'async_slam_toolbox_node']
+    processes: ['ekf_filter_node', 'async_slam_toolbox_node', 'sensor_monitor_node']
     period: 1.0   # s, wall clock

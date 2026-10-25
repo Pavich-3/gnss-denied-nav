@@ -14,7 +14,8 @@
   gz_type_name: gz.msgs.Clock
   direction: GZ_TO_ROS
 
-- ros_topic_name: /scan
+# Raw lidar; scan_gate_node (stand) relays it to /scan, except during dropout windows.
+- ros_topic_name: /scan_raw
   gz_topic_name: /scan
   ros_type_name: sensor_msgs/msg/LaserScan
   gz_type_name: gz.msgs.LaserScan

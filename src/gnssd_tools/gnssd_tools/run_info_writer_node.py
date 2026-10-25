@@ -8,7 +8,8 @@ Started by record.launch.py next to `ros2 bag record`. It writes
   also fixes the Gazebo sensor noise, e.g. the gyro bias);
 * the odometry noise parameters that odom_noise_node ACTUALLY used, including
   the scale errors it drew at start-up (read from the node's parameters);
-* the number of laps of route_driver_node;
+* the number of laps of route_driver_node and the lidar dropout windows
+  of scan_gate_node;
 * the git commit of the repository (with "-dirty" if there are uncommitted
   changes), whether that was allowed, and the Gazebo Sim version.
 
@@ -22,11 +23,13 @@ import time
 from rcl_interfaces.srv import GetParameters
 import rclpy
 from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from rclpy.parameter import parameter_value_to_python
 import yaml
 
 NOISE_NODE = 'odom_noise_node'
 DRIVER_NODE = 'route_driver_node'
+GATE_NODE = 'scan_gate_node'
 NOISE_PARAMETERS = [
     'enabled',
     'random_scale',
@@ -93,6 +96,7 @@ class RunInfoWriterNode(Node):
     def write(self):
         noise = self.read_parameters(NOISE_NODE, NOISE_PARAMETERS)
         driver = self.read_parameters(DRIVER_NODE, ['laps'])
+        gate = self.read_parameters(GATE_NODE, ['dropout_windows'])
 
         info = {
             'world': self.world,
@@ -100,6 +104,8 @@ class RunInfoWriterNode(Node):
             'seed': self.seed,
             'gz_sim_seed': self.seed,
             'laps': driver['laps'] if driver is not None else 'unavailable',
+            'scan_dropout_windows': (yaml.safe_load(gate['dropout_windows'])
+                                     if gate is not None else 'unavailable'),
             'odom_noise': noise if noise is not None else 'unavailable',
             'git_commit': git_commit(self.repo_dir),
             'allow_dirty': self.allow_dirty,
@@ -122,7 +128,8 @@ class RunInfoWriterNode(Node):
 
 
 def main():
-    rclpy.init()
+    # Same clean-shutdown setup as node_runner.run_node (see its docstring).
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = RunInfoWriterNode()
     try:
         node.write()

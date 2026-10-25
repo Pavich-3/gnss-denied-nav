@@ -10,7 +10,8 @@ Creates  <out_dir>/<scenario>_seed<seed>_<YYYYmmdd_HHMMSS>/  containing
   - run_info.yaml written by run_info_writer_node (scenario, seed, noise
     parameters actually used, git commit, Gazebo version);
   - loop_closures.yaml written by loop_closure_monitor_node;
-  - resources.csv written by resource_logger_node (CPU / RSS of the system nodes).
+  - resources.csv written by resource_logger_node (CPU / RSS of the system nodes);
+  - nodes.csv written by node_census_node (running ROS nodes every 5 s).
 
 The seed given here is only a label for the bag. The seed that drives the
 noise is passed to sim.launch.py; run.launch.py feeds both from one argument.
@@ -29,11 +30,12 @@ from launch_ros.actions import Node
 # once slam_toolbox has processed scans) are recorded as soon as they exist.
 TOPICS = [
     '/clock', '/tf', '/tf_static',
-    '/scan', '/imu_raw', '/imu', '/joint_states',
+    '/scan_raw', '/scan', '/imu_raw', '/imu', '/joint_states',
     '/odom_raw', '/odom', '/cmd_vel',
     '/ground_truth',
     '/odometry/filtered',
     '/map', '/pose', '/slam_toolbox/graph_visualization',
+    '/diagnostics',
 ]
 
 # sqlite3 is the rosbag2 default in Humble and is read by evo's `bag2` command.
@@ -107,8 +109,18 @@ def start_recording(context):
         output='screen',
     )
 
+    node_census = Node(
+        package='gnssd_tools',
+        executable='node_census_node',
+        parameters=[{
+            'output_file': os.path.join(bag_path, 'nodes.csv'),
+            'use_sim_time': True,
+        }],
+        output='screen',
+    )
+
     return [LogInfo(msg=f'Recording to {bag_path}'), recorder, run_info_writer,
-            loop_closure_monitor, resource_logger]
+            loop_closure_monitor, resource_logger, node_census]
 
 
 def generate_launch_description():

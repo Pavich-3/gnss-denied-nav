@@ -1,0 +1,35 @@
+# Parameters of sensor_monitor_node (gnssd_tools) - part of the SYSTEM.
+#
+# Timeout = 5 x the nominal message period of each sensor. Five missing
+# messages in a row cannot be explained by normal jitter or a busy
+# scheduler (one or two late messages happen), but are still detected
+# within a fraction of a second, long before the estimate degrades.
+#   odom  50 Hz  -> period 0.02 s -> timeout 0.10 s
+#   imu  100 Hz  -> period 0.01 s -> timeout 0.05 s
+#   scan  10 Hz  -> period 0.10 s -> timeout 0.50 s
+# A loss is therefore reported at most timeout + 1 / check_rate after the
+# last message.
+
+sensor_monitor_node:
+  ros__parameters:
+    sensors: ['odom', 'imu', 'scan']
+    check_rate: 10.0         # Hz, how often the timeouts are evaluated
+    report_rate: 1.0         # Hz, /diagnostics (plus immediately on every state change)
+    rate_window: 2.0         # s, window of the measured rate
+    low_rate_fraction: 0.5   # OK sensor below 50 % of its expected rate -> WARN
+
+    odom:
+      topic: /odom
+      type: odometry
+      expected_rate: 50.0
+      timeout: 0.10
+    imu:
+      topic: /imu
+      type: imu
+      expected_rate: 100.0
+      timeout: 0.05
+    scan:
+      topic: /scan
+      type: scan
+      expected_rate: 10.0
+      timeout: 0.50

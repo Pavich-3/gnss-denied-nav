@@ -24,10 +24,11 @@ Started by record.launch.py; part of the evaluation tooling, not of the system.
 
 import math
 
-import rclpy
 from rclpy.node import Node
 from visualization_msgs.msg import Marker, MarkerArray
 import yaml
+
+from gnssd_tools.node_runner import run_node
 
 VERTEX_NAMESPACE = 'slam_toolbox'   # edges use 'slam_toolbox_edges'
 
@@ -85,16 +86,7 @@ class LoopClosureMonitorNode(Node):
 
 
 def main():
-    rclpy.init()
-    node = LoopClosureMonitorNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.write()   # also records "0 loop closures" if none happened
-        node.destroy_node()
-        rclpy.try_shutdown()
+    run_node(LoopClosureMonitorNode, on_shutdown=LoopClosureMonitorNode.write)
 
 
 if __name__ == '__main__':

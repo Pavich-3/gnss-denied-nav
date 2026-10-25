@@ -26,9 +26,10 @@ Publishes:   /imu     (sensor_msgs/Imu, with covariances)
 """
 
 from rcl_interfaces.msg import ParameterDescriptor
-import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
+
+from gnssd_tools.node_runner import run_node
 
 
 def diagonal_3x3(variance):
@@ -81,15 +82,7 @@ class ImuCovarianceNode(Node):
 
 
 def main():
-    rclpy.init()
-    node = ImuCovarianceNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.try_shutdown()
+    run_node(ImuCovarianceNode)
 
 
 if __name__ == '__main__':

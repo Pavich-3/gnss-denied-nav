@@ -9,6 +9,7 @@
 #   src/gnssd_tools/scripts/run_batch.sh room room_long 10 1 1
 #   src/gnssd_tools/scripts/run_batch.sh warehouse warehouse_loop 1 1 3
 #   src/gnssd_tools/scripts/run_batch.sh room room_loop 2 1 1 odom_noise:=false
+#   src/gnssd_tools/scripts/run_batch.sh room room_dropout 2 1 3 'scan_dropout:=[[140,200]]'
 #
 # For every seed it
 #   1. refuses to start if any ROS node is still running (a leftover node
@@ -42,6 +43,9 @@ source install/setup.bash
 # Treat unset variables as errors from here on (ROS setup.bash itself does
 # not work with `set -u`, so it is switched on only after sourcing).
 set -u
+# No filename globbing: extra args such as scan_dropout:=[[140,200]] contain
+# brackets and must reach ros2 launch unchanged.
+set -f
 
 INDEX=bags/index.csv
 LOG_DIR=bags/logs
@@ -88,7 +92,8 @@ for SEED in $(seq "$SEED_FROM" "$SEED_TO"); do
   COMMIT=$(grep -E '^git_commit:' "$BAG/run_info.yaml" | awk '{print $2}')
   DURATION_NS=$(grep -m1 -A1 -E '^  duration:' "$BAG/metadata.yaml" | grep -oE '[0-9]+' | tail -1)
   DURATION=$(awk "BEGIN {printf \"%.1f\", $DURATION_NS / 1e9}")
-  echo "$(basename "$BAG"),$WORLD,$SCENARIO,$LAPS,$SEED,$COMMIT,$DURATION,$EXTRA_ARGS" >> "$INDEX"
+  # extra_args is quoted: it may contain commas (e.g. scan_dropout:="[[140,200]]").
+  echo "$(basename "$BAG"),$WORLD,$SCENARIO,$LAPS,$SEED,$COMMIT,$DURATION,\"${EXTRA_ARGS//\"/\"\"}\"" >> "$INDEX"
 
   sleep 5  # let the processes of this run disappear before the node check
 done

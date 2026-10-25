@@ -6,6 +6,7 @@ Usage:
   ros2 launch gnssd_bringup run.launch.py scenario:=room_long seed:=1 laps:=10
   ros2 launch gnssd_bringup run.launch.py world:=warehouse scenario:=warehouse_loop seed:=1
   ros2 launch gnssd_bringup run.launch.py scenario:=room_loop seed:=2 gui:=true
+  ros2 launch gnssd_bringup run.launch.py scenario:=room_dropout seed:=1 scan_dropout:="[[140,200]]"
 
 One `seed` argument feeds the odometry noise, the Gazebo sensor noise and the
 bag name, so the bag's run_info.yaml fully identifies the run. When the route
@@ -73,6 +74,7 @@ def launch_setup(context):
             'ekf': LaunchConfiguration('ekf'),
             'odom_noise': LaunchConfiguration('odom_noise'),
             'seed': LaunchConfiguration('seed'),
+            'scan_dropout': LaunchConfiguration('scan_dropout'),
             'drive': 'false',  # the driver is started below, so we can watch its exit
         }.items(),
     )
@@ -119,6 +121,8 @@ def generate_launch_description():
         DeclareLaunchArgument('laps', default_value='',
                               description='Number of laps (empty = value in route_<world>.yaml)'),
         DeclareLaunchArgument('odom_noise', default_value='true'),
+        DeclareLaunchArgument('scan_dropout', default_value='[]',
+                              description='Lidar dropout windows "[[t_start,t_end], ...]"'),
         DeclareLaunchArgument('ekf', default_value='true'),
         DeclareLaunchArgument('gui', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
