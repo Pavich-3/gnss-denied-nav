@@ -24,6 +24,19 @@ sensor_monitor_node:
     rtf_check_period: 10.0   # s
     rtf_tolerance: 0.05
 
+    # Correction consistency check (Step 5c): INVALID if map->odom turns by more
+    # than  floor_deg + k * drift_sigma * dt  (dt since the last accepted state at
+    # least `window` old). drift_sigma = gyro bias of the sensor model, passed
+    # by sim.launch.py from robot_params.xacro. Chosen from all recorded bags:
+    # largest legitimate change 0.584 deg (threshold 3.02 deg, 5.2x margin),
+    # smallest wrong correction 16.0 deg (threshold 5.07 deg after a 120 s
+    # outage, 3.2x margin). Details: docs/progress.md, Step 5c.
+    correction_check:
+      k: 3.0
+      floor_deg: 3.0
+      window: 1.0              # s
+      outage_memory: 30.0      # s, alarm this soon after a lidar outage is marked as such
+
     odom:
       topic: /odom
       type: odometry

@@ -31,6 +31,17 @@ Clock: the STEADY (monotonic system) clock, not the simulation clock.
   (subscribe, take one message, unsubscribe) and logs a WARN if the
   real-time factor deviates from 1 by more than `rtf_tolerance`.
 
+Correction consistency (Step 5c): the node also watches the correction
+layer. Every new map -> odom update from /tf goes through
+CorrectionConsistencyCheck (gnssd_tools/correction_consistency.py, plain
+Python, unit-tested): a heading change of map -> odom larger than the drift
+the base layer can have (floor + k * gyro bias * dt) marks the corrected
+estimate INVALID (latched until the operator calls ~/reset_correction_check).
+The state is published on /correction_valid (std_msgs/Bool, transient local)
+for consumers that can fall back to the base layer, and as the status
+"sensor_monitor: correction consistency" on /diagnostics. The node still only
+observes: it never changes map -> odom or any other estimate.
+
 Why /diagnostics: it is the standard ROS channel for health reports. The
 operator can watch it with existing tools (rqt_robot_monitor,
 `ros2 topic echo /diagnostics`), and diagnostic_aggregator / logging tools
@@ -40,20 +51,28 @@ Subscriptions use the sensor-data QoS profile (best effort): it is compatible
 with the reliable publishers of the stand and never slows them down.
 
 Subscribes:  the topics in config/sensor_monitor.yaml (/odom, /imu, /scan);
+             /tf (map -> odom) and /odometry/filtered for the consistency check;
              /clock for one message every rtf_check_period seconds
 Publishes:   /diagnostics (diagnostic_msgs/DiagnosticArray)
+             /correction_valid (std_msgs/Bool, transient local)
+Services:    ~/reset_correction_check (std_srvs/Trigger), operator reset
 """
 
+import math
 import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from nav_msgs.msg import Odometry
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile
 from rosgraph_msgs.msg import Clock as ClockMessage
 from sensor_msgs.msg import Imu, LaserScan
+from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
+from tf2_msgs.msg import TFMessage
 
+from gnssd_tools.correction_consistency import CorrectionConsistencyCheck, INVALID
 from gnssd_tools.node_runner import run_node
 from gnssd_tools.sensor_health import LOST, OK, RealTimeFactorCheck, SensorWatch, WAITING
 
@@ -61,6 +80,10 @@ MESSAGE_TYPES = {'odometry': Odometry, 'imu': Imu, 'scan': LaserScan}
 
 # Diagnostic level for each state of a sensor.
 LEVELS = {WAITING: DiagnosticStatus.STALE, OK: DiagnosticStatus.OK, LOST: DiagnosticStatus.ERROR}
+
+
+def yaw_from_quaternion(q):
+    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def steady_now():
@@ -103,11 +126,121 @@ class SensorMonitorNode(Node):
 
         self.diagnostics_publisher = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
 
+        self.setup_correction_check()
+
         steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self.create_timer(1.0 / check_rate, self.check_all, clock=steady_clock)
         self.create_timer(1.0 / report_rate, self.publish_diagnostics, clock=steady_clock)
         self.create_timer(rtf_check_period, self.sample_sim_clock, clock=steady_clock)
         self.clock_subscription = None
+
+    # ---- correction consistency -------------------------------------------
+
+    def setup_correction_check(self):
+        drift_sigma = self.declare_parameter('correction_check.drift_sigma', 0.0).value
+        if drift_sigma <= 0.0:
+            raise ValueError('correction_check.drift_sigma must be set (sim.launch.py passes '
+                             'the gyro bias from robot_params.xacro)')
+        self.correction_check = CorrectionConsistencyCheck(
+            k=self.declare_parameter('correction_check.k', 3.0).value,
+            floor_deg=self.declare_parameter('correction_check.floor_deg', 3.0).value,
+            drift_sigma=drift_sigma,
+            window=self.declare_parameter('correction_check.window', 1.0).value)
+        # An alarm within this time after the lidar came back is reported as
+        # "preceded by a lidar outage" (the check itself does not use it).
+        self.outage_memory = self.declare_parameter('correction_check.outage_memory', 30.0).value
+        self.last_scan_outage_end = None      # steady time of the last scan LOST -> OK
+
+        self.map_to_odom = None               # (x, y, yaw) of the last update
+        self.base_pose = None                 # (x, y) of the EKF in odom
+        self.last_shift = 0.0                 # shift of the corrected position at the last update
+        self.last_heading_change = 0.0
+
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.valid_publisher = self.create_publisher(Bool, '/correction_valid', latched)
+        self.valid_publisher.publish(Bool(data=True))
+        self.create_subscription(TFMessage, '/tf', self.on_tf, 100)
+        self.create_subscription(Odometry, '/odometry/filtered', self.on_base_pose, 10)
+        self.create_service(Trigger, '~/reset_correction_check', self.on_reset_request)
+
+    def on_base_pose(self, msg):
+        self.base_pose = (msg.pose.pose.position.x, msg.pose.pose.position.y)
+
+    def on_tf(self, msg):
+        for transform in msg.transforms:
+            if transform.header.frame_id == 'map' and transform.child_frame_id == 'odom':
+                self.on_map_to_odom(transform)
+
+    def on_map_to_odom(self, transform):
+        stamp = transform.header.stamp.sec + transform.header.stamp.nanosec * 1e-9
+        x, y = transform.transform.translation.x, transform.transform.translation.y
+        yaw = yaw_from_quaternion(transform.transform.rotation)
+
+        if self.map_to_odom is not None and self.base_pose is not None:
+            # How far this update moves the corrected position of the robot (reported only).
+            old_x, old_y, old_yaw = self.map_to_odom
+            bx, by = self.base_pose
+            old = (old_x + math.cos(old_yaw) * bx - math.sin(old_yaw) * by,
+                   old_y + math.sin(old_yaw) * bx + math.cos(old_yaw) * by)
+            new = (x + math.cos(yaw) * bx - math.sin(yaw) * by,
+                   y + math.sin(yaw) * bx + math.cos(yaw) * by)
+            if (x, y, yaw) != self.map_to_odom:
+                self.last_shift = math.dist(old, new)
+                self.last_heading_change = math.degrees(
+                    abs(math.atan2(math.sin(yaw - old_yaw), math.cos(yaw - old_yaw))))
+        self.map_to_odom = (x, y, yaw)
+
+        alarm = self.correction_check.add_update(stamp, yaw)
+        if alarm is not None:
+            after_outage = (self.last_scan_outage_end is not None and
+                            steady_now() - self.last_scan_outage_end < self.outage_memory)
+            self.get_logger().error(
+                f'Correction INVALID at t = {alarm["time"]:.2f} s: map->odom heading changed by '
+                f'{alarm["heading_change_deg"]:.2f} deg in {alarm["dt"]:.1f} s, allowed '
+                f'{alarm["allowed_deg"]:.2f} deg (corrected position moved '
+                f'{self.last_shift:.2f} m); '
+                + ('preceded by a lidar outage' if after_outage else 'no lidar outage before it'))
+            self.valid_publisher.publish(Bool(data=False))
+            self.publish_diagnostics()
+
+    def on_reset_request(self, _request, response):
+        was_invalid = self.correction_check.state == INVALID
+        self.correction_check.reset()
+        self.valid_publisher.publish(Bool(data=True))
+        self.get_logger().info('Correction consistency reset by the operator'
+                               + (' (was INVALID)' if was_invalid else ''))
+        response.success = True
+        response.message = 'correction check reset'
+        self.publish_diagnostics()
+        return response
+
+    def correction_status(self):
+        check = self.correction_check
+        status = DiagnosticStatus()
+        status.name = 'sensor_monitor: correction consistency'
+        status.hardware_id = 'map->odom'
+        values = [
+            KeyValue(key='state', value=check.state),
+            KeyValue(key='last_heading_change_deg', value=f'{self.last_heading_change:.3f}'),
+            KeyValue(key='last_position_shift_m', value=f'{self.last_shift:.3f}'),
+            KeyValue(key='floor_deg', value=f'{math.degrees(check.floor):.2f}'),
+            KeyValue(key='k', value=f'{check.k:.1f}'),
+            KeyValue(key='drift_sigma_rad_s', value=f'{check.drift_sigma:.2e}'),
+        ]
+        if check.state == INVALID:
+            status.level = DiagnosticStatus.ERROR
+            status.message = (f'INVALID since t = {check.alarm["time"]:.2f} s: heading jump '
+                              f'{check.alarm["heading_change_deg"]:.1f} deg > allowed '
+                              f'{check.alarm["allowed_deg"]:.1f} deg')
+            values.append(KeyValue(key='alarm_heading_change_deg',
+                                   value=f'{check.alarm["heading_change_deg"]:.2f}'))
+            values.append(KeyValue(key='alarm_allowed_deg',
+                                   value=f'{check.alarm["allowed_deg"]:.2f}'))
+        else:
+            status.level = DiagnosticStatus.OK
+            status.message = 'VALID'
+        status.values = values
+        return status
 
     def make_callback(self, name):
         """Return a subscription callback that registers a message of sensor `name`."""
@@ -152,6 +285,8 @@ class SensorMonitorNode(Node):
                 f'Sensor {name} LOST: no message for {transition.duration:.2f} s '
                 f'(timeout {self.watches[name].timeout} s)')
         elif transition.new_state == OK and transition.old_state == LOST:
+            if name == 'scan':
+                self.last_scan_outage_end = steady_now()
             self.get_logger().info(
                 f'Sensor {name} OK again after an outage of {transition.duration:.2f} s')
         elif transition.new_state == OK:
@@ -192,6 +327,7 @@ class SensorMonitorNode(Node):
                          else f'{self.rtf_check.rtf:.3f}'),
             ]
             array.status.append(status)
+        array.status.append(self.correction_status())
         self.diagnostics_publisher.publish(array)
 
 

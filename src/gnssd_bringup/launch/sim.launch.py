@@ -32,6 +32,7 @@ The `seed` argument drives ALL randomness of a run: the odometry noise and,
 through `gz sim --seed`, the sensor noise in Gazebo (e.g. the gyro bias).
 """
 
+import math
 import os
 import xml.etree.ElementTree as ElementTree
 
@@ -261,7 +262,14 @@ def generate_launch_description():
         executable='sensor_monitor_node',
         # Steady clock instead of sim time (see the node's docstring): use_sim_time
         # would make it process the 1 kHz /clock.
-        parameters=[sensor_monitor_config, {'use_sim_time': False}],
+        parameters=[sensor_monitor_config, {
+            'use_sim_time': False,
+            # Heading drift rate of the base layer for the correction consistency
+            # check: the gyro bias of the sensor model (static and dynamic).
+            'correction_check.drift_sigma': math.hypot(
+                xacro_property(robot_params, 'imu_gyro_bias_stddev'),
+                xacro_property(robot_params, 'imu_gyro_dynamic_bias_stddev')),
+        }],
         condition=IfCondition(LaunchConfiguration('sensor_monitor')),
         output='screen',
     )

@@ -37,7 +37,8 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/imu_covariance_node.py`: republishes /imu_raw as /imu with covariances from robot_params.xacro.
 - `src/gnssd_tools/gnssd_tools/loop_closure_monitor_node.py`: counts slam_toolbox loop closures (moved graph vertices) -> loop_closures.yaml.
 - `src/gnssd_tools/gnssd_tools/resource_logger_node.py`: logs CPU % and RSS of the system processes at 1 Hz -> resources.csv.
-- `src/gnssd_tools/gnssd_tools/sensor_monitor_node.py`: system node; reports lost sensor streams on /diagnostics.
+- `src/gnssd_tools/gnssd_tools/sensor_monitor_node.py`: system node; reports lost sensor streams and implausible corrections on /diagnostics, publishes /correction_valid.
+- `src/gnssd_tools/gnssd_tools/correction_consistency.py`: ROS-free check that flags implausible map->odom heading jumps (used by sensor_monitor_node).
 - `src/gnssd_tools/gnssd_tools/sensor_health.py`: ROS-free sensor state machine (WAITING/OK/LOST) used by sensor_monitor_node.
 - `src/gnssd_tools/gnssd_tools/scan_gate_node.py`: stand node; relays /scan_raw to /scan, drops scans in dropout windows.
 - `src/gnssd_tools/gnssd_tools/node_census_node.py`: writes the list of running nodes every 5 s -> nodes.csv.
@@ -45,11 +46,12 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/geometry.py`: small 2D helpers (yaw from quaternion, angle wrapping).
 - `src/gnssd_tools/scripts/compare_odom.py`: plots `/odom` vs `/odom_raw` from a bag and reports the drift.
 - `src/gnssd_tools/scripts/run_batch.sh`: runs one scenario for a range of seeds and writes bags/index.csv.
+- `src/gnssd_tools/scripts/check_corrections.py`: replays the correction consistency check on recorded bags (offline validation).
 - `src/gnssd_tools/scripts/dropout_analysis.py`: errors before/during/after a lidar dropout, re-convergence time, plot.
 - `src/gnssd_tools/scripts/error_vs_distance.py`: position error vs distance from the start and vs travelled distance (TUM inputs).
 - `src/gnssd_tools/scripts/estimate_gyro_bias.py`: estimates the per-run gyro z bias from a bag (/imu_raw vs /ground_truth).
 - `src/gnssd_tools/scripts/map_to_png.py`: saves the last /map of a bag as a PNG (optionally with the ground truth).
 - `src/gnssd_tools/scripts/summarize_resources.py`: mean/max CPU and RSS per process and system from resources.csv.
 - `src/gnssd_tools/scripts/tf_to_tum.py`: extracts a TF trajectory (e.g. odom -> base_link) from a bag as a TUM file for evo.
-- `src/gnssd_tools/test/`: flake8 and pep257 style tests and unit tests of the sensor state machine (`colcon test`).
+- `src/gnssd_tools/test/`: flake8 and pep257 style tests and unit tests of the sensor state machine and the correction check (`colcon test`).
 - `docs/img/`: figures produced by the verification steps.

@@ -35,7 +35,8 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | `/cmd_vel` | geometry_msgs/Twist | teleop / Nav2 |
 | `/joint_states` | sensor_msgs/JointState | simulator (wheel joints) |
 | `/clock` | rosgraph_msgs/Clock | simulator |
-| `/diagnostics` | diagnostic_msgs/DiagnosticArray | sensor_monitor_node (sensor states), ekf_filter_node |
+| `/diagnostics` | diagnostic_msgs/DiagnosticArray | sensor_monitor_node (sensor states, correction consistency), ekf_filter_node |
+| `/correction_valid` | std_msgs/Bool (transient local) | sensor_monitor_node: false once map->odom made an implausible heading jump (latched; reset: `ros2 service call /sensor_monitor_node/reset_correction_check std_srvs/srv/Trigger`) |
 
 ## Evaluation conventions
 - ATE is computed WITHOUT alignment: `evo_ape bag2 <bag> /ground_truth <est>`
