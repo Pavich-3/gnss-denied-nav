@@ -1,0 +1,7 @@
+# Current state of the correction layer as supervised by map_manager_node.
+---
+string mode       # "mapping", "localization" or "stopped"
+string map_name   # localization: the loaded map; mapping: empty
+int32 pid         # process id of the slam_toolbox launch (0 if none)
+float64 uptime    # s since the current mode was started
+string message

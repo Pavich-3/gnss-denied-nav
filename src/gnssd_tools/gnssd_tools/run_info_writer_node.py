@@ -31,6 +31,7 @@ from gnssd_tools.node_runner import init_with_stop_flag
 NOISE_NODE = 'odom_noise_node'
 DRIVER_NODE = 'route_driver_node'
 GATE_NODE = 'scan_gate_node'
+MAP_MANAGER_NODE = 'map_manager_node'
 NOISE_PARAMETERS = [
     'enabled',
     'random_scale',
@@ -98,6 +99,9 @@ class RunInfoWriterNode(Node):
         noise = self.read_parameters(NOISE_NODE, NOISE_PARAMETERS)
         driver = self.read_parameters(DRIVER_NODE, ['laps'])
         gate = self.read_parameters(GATE_NODE, ['dropout_windows'])
+        map_manager = self.read_parameters(
+            MAP_MANAGER_NODE, ['startup_mode', 'startup_map', 'startup_pose',
+                               'checkpoint_on_scan_lost'])
 
         info = {
             'world': self.world,
@@ -107,6 +111,7 @@ class RunInfoWriterNode(Node):
             'laps': driver['laps'] if driver is not None else 'unavailable',
             'scan_dropout_windows': (yaml.safe_load(gate['dropout_windows'])
                                      if gate is not None else 'unavailable'),
+            'correction_layer': map_manager if map_manager is not None else 'unavailable',
             'odom_noise': noise if noise is not None else 'unavailable',
             'git_commit': git_commit(self.repo_dir),
             'allow_dirty': self.allow_dirty,

@@ -7,8 +7,9 @@ log/
 bags/
 *.db3
 *.mcap
-maps/*.posegraph
-maps/*.data
+# saved maps are run outputs (like bags): keeping them out of git lets the
+# run.launch.py clean-tree guard pass after a map was saved
+maps/
 
 # evo / evaluation output
 results/

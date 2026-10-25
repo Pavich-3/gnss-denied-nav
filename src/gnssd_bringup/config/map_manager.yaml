@@ -1,0 +1,12 @@
+# map_manager_node (system node, Step 6): timeouts of the actions it supervises.
+# Start-up mode / map / pose and checkpoint_on_scan_lost come from launch
+# arguments (sim.launch.py / run.launch.py) because they change per run.
+map_manager_node:
+  ros__parameters:
+    # No sim time (like scan_gate and sensor_monitor): subscribing to the 1 kHz /clock
+    # cost this rclpy node ~40 % of a core. It needs no ROS clock: its only timer is the
+    # start-up delay, and the map -> odom and alarm stamps it compares are message stamps.
+    use_sim_time: false
+    service_timeout: 30.0     # s, wait for /slam_toolbox/serialize_map and its answer
+    grid_save_timeout: 10.0   # s, map_saver_cli wait for the latched /map (its default 2 s is too short here)
+    stop_timeout: 10.0        # s, per stop step of slam_toolbox (SIGINT, then SIGTERM, then SIGKILL)

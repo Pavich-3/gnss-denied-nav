@@ -37,6 +37,19 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 | `/clock` | rosgraph_msgs/Clock | simulator |
 | `/diagnostics` | diagnostic_msgs/DiagnosticArray | sensor_monitor_node (sensor states, correction consistency), ekf_filter_node |
 | `/correction_valid` | std_msgs/Bool (transient local) | sensor_monitor_node: false once map->odom made an implausible heading jump (latched; reset: `ros2 service call /sensor_monitor_node/reset_correction_check std_srvs/srv/Trigger`) |
+| `/map_manager/events` | std_msgs/String (transient local) | map_manager_node: one line per mode switch / map save / map load / checkpoint |
+
+## Correction layer control (map_manager_node, Step 6)
+- map_manager_node starts slam_toolbox as a child process (`slam_mapping.launch.py`
+  or `slam_localization.launch.py`) and is the only thing that starts/stops it.
+  Mode switch = stop (SIGINT -> SIGTERM -> SIGKILL to the process group) + start.
+- Maps live in `maps/<name>.{posegraph,data,pgm,yaml}` (run outputs, ignored by git).
+- Services: `/map_manager_node/save_map` (gnssd_interfaces/SaveMap, mapping only),
+  `/map_manager_node/set_mode` (SetMode), `/map_manager_node/status` (GetStatus).
+- The occupancy grid is saved with nav2 `map_saver_cli` run by map_manager (timeout
+  in map_manager.yaml): slam_toolbox's own save_map uses a 2 s timeout that fails here.
+- slam_toolbox in localization mode refuses serialize_map but still answers
+  result=0 (SUCCESS): check the files, never the result code.
 
 ## Evaluation conventions
 - ATE is computed WITHOUT alignment: `evo_ape bag2 <bag> /ground_truth <est>`
@@ -99,12 +112,12 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 
 ## System vs stand
 - SYSTEM (what would run on the real robot; measured by resource_logger):
-  ekf_filter_node, slam_toolbox (async_slam_toolbox_node), sensor_monitor_node
-  (later map_manager_node).
+  ekf_filter_node, slam_toolbox (async_slam_toolbox_node or
+  localization_slam_toolbox_node), sensor_monitor_node, map_manager_node.
 - STAND (simulation and evaluation only): gz sim, parameter_bridge,
   odom_noise_node, imu_covariance_node, scan_gate_node, route_driver_node,
   recorder, run_info_writer_node, loop_closure_monitor_node,
-  resource_logger_node, node_census_node, RViz.
+  resource_logger_node, node_census_node, scripted_operator_node, RViz.
 - Every own node starts through gnssd_tools/node_runner.py (rclpy SIGINT
   handler off -> clean shutdown, no Traceback).
 
@@ -112,7 +125,8 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - `use_sim_time: true` everywhere (every node, every launch file). Exceptions
   (documented in the nodes): scan_gate_node takes sim time from the scan header
   stamps; sensor_monitor_node runs on the steady clock (as on the robot) and checks
-  RTF ~ 1 from one /clock sample every 10 s.
+  RTF ~ 1 from one /clock sample every 10 s; map_manager_node needs no ROS clock
+  (it compares message stamps only).
 - Gazebo publishes /clock at 1 kHz; every node with use_sim_time handles all of it:
   ~43 % of one core for an rclpy node, ~5.7 % for an rclcpp node (measured in
   Steps 5/5b). Simulation artifact (no /clock on the real robot): state it when

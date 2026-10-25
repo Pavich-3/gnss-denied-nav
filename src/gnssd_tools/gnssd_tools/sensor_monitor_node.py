@@ -232,6 +232,7 @@ class SensorMonitorNode(Node):
             status.message = (f'INVALID since t = {check.alarm["time"]:.2f} s: heading jump '
                               f'{check.alarm["heading_change_deg"]:.1f} deg > allowed '
                               f'{check.alarm["allowed_deg"]:.1f} deg')
+            values.append(KeyValue(key='alarm_time_s', value=f'{check.alarm["time"]:.3f}'))
             values.append(KeyValue(key='alarm_heading_change_deg',
                                    value=f'{check.alarm["heading_change_deg"]:.2f}'))
             values.append(KeyValue(key='alarm_allowed_deg',

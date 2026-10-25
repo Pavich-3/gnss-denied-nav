@@ -1,0 +1,11 @@
+# Switch the correction layer between mapping and localization (FR-10, FR-13).
+string mode            # "mapping" or "localization"
+string map_name        # localization: a map in maps/ (or "last_checkpoint"); mapping: ignored
+float64 x              # localization: initial pose of the robot in the map frame
+float64 y
+float64 yaw            # rad
+bool use_base_pose     # localization: ignore x/y/yaw and use the last VALID corrected pose
+                       # propagated with the base layer
+---
+bool success
+string message

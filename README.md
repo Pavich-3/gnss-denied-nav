@@ -13,16 +13,22 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `.gitignore`: excludes colcon output, bags, generated maps and evaluation results.
 - `docs/progress.md`: per-step log with pasted verification output.
 - `src/gnssd_description/`: robot URDF/xacro (`urdf/`), Gazebo worlds (`worlds/`) and sensor config (`config/`).
+- `src/gnssd_interfaces/`: service definitions of map_manager_node (SaveMap, SetMode, GetStatus).
 - `src/gnssd_bringup/`: launch files (`launch/`), parameter YAML (`config/`) and RViz configs (`rviz/`).
 - `src/gnssd_description/urdf/robot_params.xacro`: all robot dimensions, masses and sensor/noise parameters.
 - `src/gnssd_description/urdf/robot.urdf.xacro`: robot links, joints, Gazebo sensors (gpu_lidar, imu) and DiffDrive/JointStatePublisher plugins.
 - `src/gnssd_description/worlds/room.sdf`: 10 x 8 m test room with a central island for a loop route.
 - `src/gnssd_description/worlds/warehouse.sdf`: 30 x 20 m warehouse with four rack rows and a long repetitive aisle.
-- `src/gnssd_bringup/launch/sim.launch.py`: starts Gazebo (seeded), robot, bridge, odometry noise, IMU covariance, EKF, slam_toolbox, optional route driver and RViz.
+- `src/gnssd_bringup/launch/sim.launch.py`: starts Gazebo (seeded), robot, bridge, odometry noise, IMU covariance, EKF, sensor monitor, map_manager (which starts slam_toolbox), optional route driver and RViz.
+- `src/gnssd_bringup/launch/slam_mapping.launch.py`: slam_toolbox online async mapping (started by map_manager_node).
+- `src/gnssd_bringup/launch/slam_localization.launch.py`: slam_toolbox localization on a saved pose graph at a given initial pose (started by map_manager_node).
 - `src/gnssd_bringup/launch/record.launch.py`: records one run (rosbag2, sqlite3) plus run_info.yaml, loop_closures.yaml, resources.csv.
 - `src/gnssd_bringup/launch/run.launch.py`: one complete experiment (sim + route driver + recording), stops when the route is done; refuses to run with uncommitted changes.
 - `src/gnssd_bringup/config/ekf.yaml`: base layer EKF (robot_localization): fuses vx, vyaw from /odom and vyaw from /imu.
 - `src/gnssd_bringup/config/slam_toolbox.yaml`: correction layer (slam_toolbox online async mapping); package defaults + 3 marked changes.
+- `src/gnssd_bringup/config/slam_toolbox_localization.yaml`: slam_toolbox localization mode; package defaults + marked changes.
+- `src/gnssd_bringup/config/map_manager.yaml`: timeouts of map_manager_node (service calls, grid saving, stopping slam_toolbox).
+- `src/gnssd_bringup/config/route_room_east.yaml`: room loop starting at (7, 2) heading north (localization from a non-origin start).
 - `src/gnssd_bringup/config/resource_logger.yaml`: list of system processes whose CPU/RSS is logged.
 - `src/gnssd_bringup/config/sensor_monitor.yaml`: sensors, timeouts and rates watched by sensor_monitor_node.
 - `src/gnssd_bringup/config/route_room.yaml`: route (waypoints + controller parameters) for world:=room.
@@ -40,6 +46,9 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/sensor_monitor_node.py`: system node; reports lost sensor streams and implausible corrections on /diagnostics, publishes /correction_valid.
 - `src/gnssd_tools/gnssd_tools/correction_consistency.py`: ROS-free check that flags implausible map->odom heading jumps (used by sensor_monitor_node).
 - `src/gnssd_tools/gnssd_tools/sensor_health.py`: ROS-free sensor state machine (WAITING/OK/LOST) used by sensor_monitor_node.
+- `src/gnssd_tools/gnssd_tools/map_manager_node.py`: system node; selects mapping/localization, saves and loads maps, supervises slam_toolbox.
+- `src/gnssd_tools/gnssd_tools/map_manager_core.py`: ROS-free parts of map_manager_node (map files, command checks, child process stop).
+- `src/gnssd_tools/gnssd_tools/scripted_operator_node.py`: stand node; plays the operator who switches to localization on the last checkpoint after an alarm.
 - `src/gnssd_tools/gnssd_tools/scan_gate_node.py`: stand node; relays /scan_raw to /scan, drops scans in dropout windows.
 - `src/gnssd_tools/gnssd_tools/node_census_node.py`: writes the list of running nodes every 5 s -> nodes.csv.
 - `src/gnssd_tools/gnssd_tools/node_runner.py`: common start/clean-shutdown of all own nodes.
@@ -53,5 +62,5 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/scripts/map_to_png.py`: saves the last /map of a bag as a PNG (optionally with the ground truth).
 - `src/gnssd_tools/scripts/summarize_resources.py`: mean/max CPU and RSS per process and system from resources.csv.
 - `src/gnssd_tools/scripts/tf_to_tum.py`: extracts a TF trajectory (e.g. odom -> base_link) from a bag as a TUM file for evo.
-- `src/gnssd_tools/test/`: flake8 and pep257 style tests and unit tests of the sensor state machine and the correction check (`colcon test`).
+- `src/gnssd_tools/test/`: flake8 and pep257 style tests and unit tests of the sensor state machine, the correction check and map_manager_core (`colcon test`).
 - `docs/img/`: figures produced by the verification steps.

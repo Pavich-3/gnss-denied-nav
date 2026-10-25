@@ -11,6 +11,8 @@ Usage:
   ros2 launch gnssd_bringup sim.launch.py scan_dropout:="[[140,200]]"   # lidar off 140-200 s
   ros2 launch gnssd_bringup sim.launch.py ekf:=false         # without the EKF base layer (and SLAM)
   ros2 launch gnssd_bringup sim.launch.py slam:=false        # base layer only, no correction layer
+  ros2 launch gnssd_bringup sim.launch.py slam_mode:=localization slam_map:=room_s1
+                                                             # localize on maps/room_s1 (FR-12)
 
 What gets started:
   gz sim                 worlds/<world>.sdf (server, plus GUI unless gui:=false)
@@ -23,7 +25,8 @@ What gets started:
                          (always in the chain; no windows = pass-through)
   sensor_monitor_node    system: reports lost sensor streams on /diagnostics
   ekf_filter_node        base layer: /odom + /imu -> /odometry/filtered and TF odom -> base_link
-  slam_toolbox           correction layer: /scan -> /map and TF map -> odom
+  map_manager_node       system: starts slam_toolbox (correction layer: /scan -> map and
+                         TF map -> odom) in slam_mode, saves / loads maps on operator command
                          (started once the EKF process has started; it needs odom -> base_link)
   route_driver_node      only with drive:=true, follows config/route_<world>.yaml
   rviz2                  only with rviz:=true
@@ -34,6 +37,7 @@ through `gz sim --seed`, the sensor noise in Gazebo (e.g. the gyro bias).
 
 import math
 import os
+import subprocess
 import xml.etree.ElementTree as ElementTree
 
 from ament_index_python.packages import get_package_share_directory
@@ -69,11 +73,20 @@ def xacro_property(xacro_file, name):
     raise KeyError(f'xacro property {name} not found in {xacro_file}')
 
 
+def repository_root():
+    """Return the git repository that contains this launch file (via the --symlink-install link)."""
+    launch_dir = os.path.dirname(os.path.realpath(__file__))
+    result = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=launch_dir,
+                            capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else os.getcwd()
+
+
 def warn_if_not_at_origin(context):
     """Mapping runs must start at the world origin; warn if the spawn pose is different."""
     spawn = [float(LaunchConfiguration(name).perform(context))
              for name in ('spawn_x', 'spawn_y', 'spawn_yaw')]
-    if any(value != 0.0 for value in spawn):
+    mapping = LaunchConfiguration('slam_mode').perform(context) == 'mapping'
+    if mapping and any(value != 0.0 for value in spawn):
         get_logger('sim.launch').warning(
             f'Robot spawned at x={spawn[0]}, y={spawn[1]}, yaw={spawn[2]}, not at the origin. '
             'ATE without alignment requires start at origin for mapping runs.')
@@ -129,6 +142,26 @@ def rviz_node(context, rviz_config):
     )]
 
 
+def map_manager_node(context):
+    """map_manager_node with the start-up mode, map and pose of the launch arguments."""
+    if LaunchConfiguration('slam').perform(context).lower() != 'true':
+        return []
+    value = lambda name: LaunchConfiguration(name).perform(context)   # noqa: E731
+    return [Node(
+        package='gnssd_tools',
+        executable='map_manager_node',
+        parameters=[os.path.join(get_package_share_directory('gnssd_bringup'),
+                                 'config', 'map_manager.yaml'), {
+            'maps_dir': value('maps_dir'),
+            'startup_mode': value('slam_mode'),
+            'startup_map': value('slam_map'),
+            'startup_pose': [float(value(name)) for name in ('slam_x', 'slam_y', 'slam_yaw')],
+            'checkpoint_on_scan_lost': value('checkpoint_on_scan_lost').lower() == 'true',
+        }],
+        output='screen',
+    )]
+
+
 def generate_launch_description():
     description_dir = get_package_share_directory('gnssd_description')
     bringup_dir = get_package_share_directory('gnssd_bringup')
@@ -141,7 +174,6 @@ def generate_launch_description():
     route_config = [os.path.join(bringup_dir, 'config', 'route_'),
                     LaunchConfiguration('world'), '.yaml']
     ekf_config = os.path.join(bringup_dir, 'config', 'ekf.yaml')
-    slam_config = os.path.join(bringup_dir, 'config', 'slam_toolbox.yaml')
     sensor_monitor_config = os.path.join(bringup_dir, 'config', 'sensor_monitor.yaml')
     rviz_config = os.path.join(bringup_dir, 'rviz', 'sim.rviz')
 
@@ -164,7 +196,22 @@ def generate_launch_description():
             description='Start the EKF base layer (robot_localization)'),
         DeclareLaunchArgument(
             'slam', default_value='true',
-            description='Start the slam_toolbox correction layer (needs ekf:=true)'),
+            description='Start the correction layer (map_manager_node + slam_toolbox; needs ekf)'),
+        DeclareLaunchArgument(
+            'slam_mode', default_value='mapping',
+            description='Start-up mode of the correction layer: mapping or localization'),
+        DeclareLaunchArgument(
+            'slam_map', default_value='',
+            description='localization: saved map name in maps/ (FR-12)'),
+        DeclareLaunchArgument('slam_x', default_value='0.0',
+                              description='localization: initial pose in the map frame'),
+        DeclareLaunchArgument('slam_y', default_value='0.0'),
+        DeclareLaunchArgument('slam_yaw', default_value='0.0'),
+        DeclareLaunchArgument(
+            'checkpoint_on_scan_lost', default_value='false',
+            description='Serialize the pose graph when the lidar is lost (safety checkpoint)'),
+        DeclareLaunchArgument('maps_dir', default_value=os.path.join(repository_root(), 'maps'),
+                              description='Folder of saved maps'),
         DeclareLaunchArgument(
             'sensor_monitor', default_value='true',
             description='Start sensor_monitor_node (system)'),
@@ -283,16 +330,10 @@ def generate_launch_description():
         output='screen',
     )
 
-    slam = Node(
-        package='slam_toolbox',
-        executable='async_slam_toolbox_node',
-        name='slam_toolbox',
-        parameters=[slam_config, {'use_sim_time': True}],
-        condition=IfCondition(LaunchConfiguration('slam')),
-        output='screen',
-    )
+    map_manager = OpaqueFunction(function=map_manager_node)
+    # The correction layer needs odom -> base_link from the EKF.
     start_slam_after_ekf = RegisterEventHandler(
-        OnProcessStart(target_action=ekf, on_start=[slam]))
+        OnProcessStart(target_action=ekf, on_start=[map_manager]))
 
     route_driver = Node(
         package='gnssd_tools',

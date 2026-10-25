@@ -28,6 +28,8 @@ setup(
             'sensor_monitor_node = gnssd_tools.sensor_monitor_node:main',
             'scan_gate_node = gnssd_tools.scan_gate_node:main',
             'node_census_node = gnssd_tools.node_census_node:main',
+            'map_manager_node = gnssd_tools.map_manager_node:main',
+            'scripted_operator_node = gnssd_tools.scripted_operator_node:main',
         ],
     },
 )

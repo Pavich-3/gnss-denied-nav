@@ -1,0 +1,8 @@
+# Save the current map of the correction layer (FR-11).
+# Writes maps/<name>.posegraph + maps/<name>.data (slam_toolbox pose graph,
+# needed to localize on the map later) and maps/<name>.pgm + .yaml (occupancy grid).
+string name     # letters, digits, '_' and '-' only
+---
+bool success
+string message
+string[] files  # paths of the written files

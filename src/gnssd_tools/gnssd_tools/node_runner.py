@@ -20,7 +20,8 @@ import signal
 import threading
 
 import rclpy
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import (ExternalShutdownException, MultiThreadedExecutor,
+                             SingleThreadedExecutor)
 from rclpy.signals import SignalHandlerOptions
 
 SPIN_TIMEOUT = 0.1  # s, longest time between two looks at the stop flag
@@ -39,22 +40,28 @@ def init_with_stop_flag():
     return stop
 
 
-def run_node(node_class, on_shutdown=None):
+def run_node(node_class, on_shutdown=None, threads=1):
     """
     Create `node_class()`, spin it until SIGINT/SIGTERM, then shut down cleanly.
 
     `on_shutdown(node)` is called before the node is destroyed (e.g. to write
     a final file); it runs even when the node is stopped by a signal.
+    `threads` > 1 uses a multi-threaded executor, needed by nodes whose
+    service callbacks wait for other services (e.g. map_manager_node).
     """
     stop = init_with_stop_flag()
     node = node_class()
+    executor = (MultiThreadedExecutor(num_threads=threads) if threads > 1
+                else SingleThreadedExecutor())
+    executor.add_node(node)
     try:
         while not stop.is_set() and rclpy.ok():
-            rclpy.spin_once(node, timeout_sec=SPIN_TIMEOUT)
+            executor.spin_once(timeout_sec=SPIN_TIMEOUT)
     except ExternalShutdownException:
         pass
     finally:
         if on_shutdown is not None:
             on_shutdown(node)
+        executor.remove_node(node)
         node.destroy_node()
         rclpy.try_shutdown()

@@ -35,7 +35,7 @@ TOPICS = [
     '/ground_truth',
     '/odometry/filtered',
     '/map', '/pose', '/slam_toolbox/graph_visualization',
-    '/diagnostics',
+    '/diagnostics', '/correction_valid', '/map_manager/events',
 ]
 
 # sqlite3 is the rosbag2 default in Humble and is read by evo's `bag2` command.

@@ -1,0 +1,24 @@
+# route_driver_node parameters for world:=room with a NON-ORIGIN start (Step 6, FR-13 test):
+# the same closed loop as route_room.yaml, but starting at (7.0, 2.0) on the east
+# side, heading north (spawn_x:=7.0 spawn_y:=2.0 spawn_yaw:=1.5708).
+# Waypoints are route_room.yaml's, rotated so that the loop starts here.
+
+route_driver_node:
+  ros__parameters:
+    waypoints: [7.0, 2.0,
+                7.0, 3.7,
+                6.5, 4.2,
+                0.5, 4.2,
+                0.0, 3.7,
+                0.0, 0.5,
+                0.5, 0.0,
+                6.5, 0.0,
+                7.0, 0.5]
+
+    laps: 2
+    linear_speed: 0.2
+    max_angular_speed: 0.6
+    lookahead_distance: 0.5
+    goal_tolerance: 0.05
+    control_rate: 20.0
+    start_delay: 3.0
