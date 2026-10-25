@@ -1199,3 +1199,129 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 10 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 5c — Correction consistency check (2026-10-25)
+
+Commit for the live runs: `728b69c` (clean tree). ekf.yaml, slam_toolbox.yaml and the noise models
+are unchanged.
+
+### Design decision: drift bound from the sensor model, not from the EKF covariance
+The base-layer pose covariance on /odometry/filtered is unusable as an uncertainty bound with the
+default (untuned) process noise and no absolute measurement:
+```
+warehouse_dropout s1 /odometry/filtered pose covariance:
+t=  10 s: sigma_yaw  44.4 deg, sigma_x 0.7 m,    sigma_y 7.7 m
+t= 285 s: sigma_yaw 236.9 deg, sigma_x 4963 m,   sigma_y 18521 m
+t= 405 s: sigma_yaw 282.4 deg
+growth of sigma_yaw: 4.44 deg per map->odom update (0.1 s), 153.8 deg over the 120 s outage
+```
+A "k·sigma" threshold would be >= 154° after the outage (wrong corrections are 16–40°) and >= 4.4°
+per normal update (legitimate ones are <= 0.67°): the two sets cannot be separated with this input.
+Decision (agreed with the user): bound the heading the base layer can drift by its gyro model,
+sigma_drift = sqrt(imu_gyro_bias_stddev^2 + imu_gyro_dynamic_bias_stddev^2) = 1.005e-4 rad/s, read
+from robot_params.xacro (no duplicated numbers). Translation is reported but not tested: the shift of
+the corrected position at a wrong update (0.09–0.36 m) overlaps with legitimate corrections (<= 0.15 m).
+
+### Detector (`gnssd_tools/correction_consistency.py`, plain Python)
+For every NEW map->odom update (new stamp; slam_toolbox's repeats of the same stamp are ignored):
+```
+change  = |yaw(map->odom) - yaw(reference)|,  reference = newest accepted state >= window old
+                                                 (or the last accepted one after a gap)
+allowed = floor + k * sigma_drift * dt          dt = time between the two
+INVALID  if change > allowed   (latched)
+```
+Parameters (config/sensor_monitor.yaml): k = 3, floor = 3.0°, window = 1.0 s ->
+3.02° for a normal update, 5.07° after a 120 s gap.
+Latch: INVALID stays until the operator calls `~/reset_correction_check` (std_srvs/Trigger).
+Justification: once a wrong correction is in slam_toolbox's graph, the map and every later correction
+are built on it (Step 5 map: rotated copy of the warehouse), so the estimate cannot become right by
+itself; an automatic clear would hide the failure. A future map_manager action (restart / relocalise)
+is the natural place to trigger the reset.
+The check does not use the lidar-outage signal; sensor_monitor only adds to the ERROR message whether
+a scan LOST->OK happened within `outage_memory` (30 s).
+
+Unit tests (`test/test_correction_consistency.py`):
+```
+6 passed: valid run with 0.2° quantised updates; slow drift (0.2°/s) accepted; legitimate 0.6° loop
+closure accepted; 24° jump after 120 s detected (allowed 5.06°); INVALID latched until reset (then
+the new heading is the reference); repeated stamp ignored
+```
+
+### Offline validation on all recorded bags (`scripts/check_corrections.py`, k 3, floor 3°, window 1 s)
+
+| bag | updates | largest accepted change / allowed (ratio) | alarms |
+|---|---|---|---|
+| loop_seed1_20261024_122207 (room_loop) | 2176 | 0.400° / 3.02° (0.133) | 0 |
+| loop_seed2_20261024_122604 | 2178 | 0.400° / 3.02° (0.133) | 0 |
+| loop_seed3_20261024_123027 | 2167 | 0.400° / 3.02° (0.133) | 0 |
+| long_seed1_20261024_123426 (room_long) | 10648 | 0.400° / 3.02° (0.133) | 0 |
+| warehouse_loop s1 / s2 / s3 | 8949 / 8949 / 8931 | 0.584° / 0.508° / 0.400° vs 3.02° (0.194 / 0.168 / 0.133) | 0 / 0 / 0 |
+| room_loop_seed1_20261025_120310 (Step 5 pass-through) | 2167 | 0.400° / 3.02° | 0 |
+| room_dropout s1 / s2 / s3 (Step 5) | 1558 / 1567 / 1577 | 0.400° / 3.02° | 0 / 0 / 0 |
+| room_dropout_seed1_20261025_190550 (Step 5b) | 1567 | 0.400° / 3.02° | 0 |
+| **warehouse_dropout s1** | 7739 | (0.200° before the alarm) | **1: t = 405.2 s, 39.99° > 5.07° (dt 120.1 s)** |
+| **warehouse_dropout s2** | 7739 | (0.200°) | **1: t = 405.2 s, 24.03° > 5.07°** |
+| **warehouse_dropout s3** | 7739 | (0.400°) | **1: t = 405.2 s, 23.94° > 5.07°** |
+| **warehouse_dropout_debug s1** (Step 5b) | 7749 | (0.200°) | **1: t = 405.2 s, 16.00° > 5.07°** |
+
+(Step 3 bags have no correction layer and are skipped.)
+Margins: largest legitimate change 0.584° vs threshold 3.02° -> **5.2x** below; smallest wrong
+correction 16.0° vs threshold 5.07° -> **3.2x** above. Every failure is caught at the first update
+after the outage; no false alarm in 12 normal runs (incl. the room outages, whose first post-outage
+change was 0.0–0.2°).
+
+### Integration in sensor_monitor_node (still observing only)
+Subscribes /tf (map->odom) and /odometry/filtered (base pose, for the reported position shift).
+Publishes /correction_valid (std_msgs/Bool, transient local; true at start, false on INVALID, true
+after a reset) and the /diagnostics status "sensor_monitor: correction consistency" (OK "VALID" /
+ERROR "INVALID since …" with state, last_heading_change_deg, last_position_shift_m, floor_deg, k,
+drift_sigma_rad_s, alarm_heading_change_deg, alarm_allowed_deg). Live smoke test: /correction_valid
+True, status VALID, reset service answers.
+
+### Live runs at `728b69c`
+warehouse_dropout seed 1:
+```
+[INFO]  [1792949892.662] scan_gate_node: Scan gate CLOSED (lidar dropout) at t = 285.00 s
+[WARN]  [1792949893.093] sensor_monitor_node: Sensor scan LOST: no message for 0.53 s (timeout 0.5 s)
+[INFO]  [1792950015.199] scan_gate_node: Scan gate OPEN (lidar back) at t = 405.00 s
+[INFO]  [1792950015.201] sensor_monitor_node: Sensor scan OK again after an outage of 122.64 s
+[ERROR] [1792950015.345] sensor_monitor_node: Correction INVALID at t = 405.30 s: map->odom heading
+        changed by 39.99 deg in 120.2 s, allowed 5.08 deg (corrected position moved 0.22 m);
+        preceded by a lidar outage
+first map->odom heading jump > 3°: stamp 405.30 s, 39.99°, received (wall) 1792950015.344
+/diagnostics "correction consistency": VALID from the start; ERROR "INVALID since t = 405.30 s:
+heading jump 40.0 deg > allowed 5.1 deg" 0.002 s after the jump was received; INVALID until the end
+(924 reports). /correction_valid: true -> false at 1792950015.345 (log; topic not recorded).
+```
+Alarm latency: 1 ms after the wrong map->odom update arrived (0.30 s after the lidar came back:
+the first scan processed after the outage).
+room_dropout seed 1: no map->odom heading change > 3°, status VALID in all 229 reports, no alarm;
+scan LOST/OK detected as before (LOST 0.45 s after the gate closed, OK 0.001 s after it opened).
+Both runs: tracebacks 0, escalations 0, processes died 0.
+
+### Resources of sensor_monitor_node
+
+| version | CPU 1-core mean / max | RSS |
+|---|---|---|
+| Step 5 (use_sim_time) | 59.8–62.3 / 66 % | 62.4 MiB |
+| Step 5b (steady clock) | 11.1–13.3 / 15 % | 62.1–62.5 MiB |
+| Step 5c smoke test (30 s probe, + /tf and /odometry/filtered) | 19.4 / 20.0 % | 63.2 MiB |
+| Step 5c recorded runs (resource_logger) | **24.5–24.9 / 28 %** | 63.6–63.7 MiB |
+
+The extra ~8–12 % is the Python handling of /tf (map->odom 50 Hz + odom->base_link 30 Hz +
+robot_state_publisher) and /odometry/filtered (30 Hz). System total (ekf + slam + monitor):
+51.9–52.7 / 67–72 % of one core.
+
+Open item: /correction_valid is not in record.launch's topic list (the timeline above comes from the
+log and /diagnostics); add it when the recording profile is next changed.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+27 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 16 tests, 0 errors, 0 failures, 0 skipped
+```
