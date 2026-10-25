@@ -109,6 +109,10 @@ class MapManagerNode(Node):
         self.correction_valid = True
         self.alarm_time = None               # stamp of the invalid map -> odom update
         self.scan_lost = False
+        # /diagnostics callbacks can run in parallel (multi-threaded executor):
+        # the lock makes "scan just became LOST" true for exactly one of them,
+        # otherwise two messages could both request a checkpoint.
+        self.scan_state_lock = threading.Lock()
 
         group = ReentrantCallbackGroup()
         self.events = self.create_publisher(
@@ -277,9 +281,11 @@ class MapManagerNode(Node):
                     self.alarm_time = float(values['alarm_time_s'])
             elif status.name == 'sensor_monitor: scan':
                 lost = status.level == DiagnosticStatus.ERROR
-                if lost and not self.scan_lost:
+                with self.scan_state_lock:
+                    just_lost = lost and not self.scan_lost
+                    self.scan_lost = lost
+                if just_lost:
                     self.on_scan_lost()
-                self.scan_lost = lost
 
     def on_scan_lost(self):
         if not self.checkpoint_on_scan_lost or self.mode != MAPPING:
