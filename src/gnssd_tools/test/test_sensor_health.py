@@ -66,6 +66,18 @@ def test_measured_rate():
     assert watch.measured_rate() == pytest.approx(100.0, rel=0.01)
 
 
+def test_rate_is_known_only_after_a_full_window():
+    watch = SensorWatch('scan', timeout=0.5, expected_rate=10.0, rate_window=2.0)
+    feed(watch, 0.0, 1.0, 0.1)
+    assert not watch.rate_known(1.0)          # only 1 s of data since OK
+    feed(watch, 1.0, 3.0, 0.1)
+    assert watch.rate_known(3.0)
+
+    watch.check(4.0)                          # lost ...
+    watch.on_message(10.0)                    # ... and back: the window starts again
+    assert not watch.rate_known(10.5)
+
+
 def test_clock_jump_back_resets_to_waiting():
     watch = SensorWatch('odom', timeout=0.1, expected_rate=50.0)
     feed(watch, 100.0, 101.0, 0.02)

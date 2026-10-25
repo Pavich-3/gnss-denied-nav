@@ -23,9 +23,10 @@ import time
 from rcl_interfaces.srv import GetParameters
 import rclpy
 from rclpy.node import Node
-from rclpy.signals import SignalHandlerOptions
 from rclpy.parameter import parameter_value_to_python
 import yaml
+
+from gnssd_tools.node_runner import init_with_stop_flag
 
 NOISE_NODE = 'odom_noise_node'
 DRIVER_NODE = 'route_driver_node'
@@ -129,7 +130,8 @@ class RunInfoWriterNode(Node):
 
 def main():
     # Same clean-shutdown setup as node_runner.run_node (see its docstring).
-    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    # The node runs once and exits; a signal just stops it early.
+    init_with_stop_flag()
     node = RunInfoWriterNode()
     try:
         node.write()

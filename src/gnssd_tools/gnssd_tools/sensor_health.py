@@ -54,6 +54,7 @@ class SensorWatch:
 
         self.state = WAITING
         self.last_time = None
+        self.ok_since = None      # time of the last transition to OK
         self.arrivals = deque()   # arrival times inside the rate window
 
     def on_message(self, now):
@@ -89,6 +90,15 @@ class SensorWatch:
         """Seconds since the last message, or None if there was none yet."""
         return None if self.last_time is None else now - self.last_time
 
+    def rate_known(self, now):
+        """
+        Return True once the sensor has been OK for a full rate window.
+
+        Right after the start or after an outage the window holds only a few
+        messages and the measured rate is meaningless (e.g. 0 Hz).
+        """
+        return self.state == OK and now - self.ok_since >= self.rate_window
+
     def measured_rate(self):
         """Message rate over the last `rate_window` seconds (Hz), or 0 if unknown."""
         if len(self.arrivals) < 2:
@@ -112,4 +122,6 @@ class SensorWatch:
     def _change(self, new_state, now, duration=0.0):
         transition = Transition(self.name, self.state, new_state, now, duration)
         self.state = new_state
+        if new_state == OK:
+            self.ok_since = now
         return transition

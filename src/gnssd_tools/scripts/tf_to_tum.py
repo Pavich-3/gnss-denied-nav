@@ -17,6 +17,11 @@ How it works:
      look up every edge at that time (static edges are constant, dynamic
      ones are interpolated: translation linearly, rotation by slerp; no
      extrapolation), and multiply the transforms along the chain;
+     inside a gap longer than MAX_INTERPOLATION_GAP the last value is HELD
+     (zero-order hold): e.g. while the lidar is off, slam_toolbox keeps
+     re-sending its last map -> odom with the old stamp - the correction is
+     frozen, and interpolating to the next value would smear the change
+     after the outage back over it;
   4. write "t x y z qx qy qz qw" lines (TUM format, header stamps in seconds).
 
 Run with the Python of evo's venv:
@@ -33,6 +38,8 @@ import numpy as np
 from rosbags.highlevel import AnyReader
 from rosbags.typesys import get_typestore, Stores
 from scipy.spatial.transform import Rotation, Slerp
+
+MAX_INTERPOLATION_GAP = 1.0  # s; larger gaps are held, not interpolated
 
 
 class Edge:
@@ -65,6 +72,12 @@ class Edge:
             return to_matrix(self.translations[-1], self.rotations[-1])
         if t < self.times[0] or t > self.times[-1]:
             return None
+        # Inside a long gap (the publisher kept re-sending an old stamp, e.g.
+        # slam_toolbox's map -> odom while the lidar is off) the transform was
+        # frozen: hold the last value instead of interpolating to the next one.
+        i = np.searchsorted(self.times, t, side='right') - 1
+        if i + 1 < len(self.times) and self.times[i + 1] - self.times[i] > MAX_INTERPOLATION_GAP:
+            return to_matrix(self.translations[i], self.rotations[i])
         translation = np.array([np.interp(t, self.times, self.translations[:, axis])
                                 for axis in range(3)])
         return to_matrix(translation, self.slerp([t])[0])

@@ -136,7 +136,7 @@ class SensorMonitorNode(Node):
                 status.message = 'no message received yet'
             elif watch.state == LOST:
                 status.message = f'LOST: no message for {age:.2f} s'
-            elif rate < self.low_rate_fraction * watch.expected_rate:
+            elif watch.rate_known(now) and rate < self.low_rate_fraction * watch.expected_rate:
                 status.level = DiagnosticStatus.WARN
                 status.message = f'rate low: {rate:.1f} Hz of {watch.expected_rate:.1f} Hz'
             else:

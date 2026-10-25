@@ -875,3 +875,185 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 2 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 5 — sensor_monitor_node, lidar dropout gate, dropout scenario (2026-10-25)
+
+Code commit for all runs: `71e8b64` (clean tree, `allow_dirty: false`). Fixes made after the runs
+(shutdown, TF hold, rate warm-up; see "Fixes after the runs") do not change the recorded data;
+all numbers below were computed with the fixed `tf_to_tum.py`. System configuration (ekf.yaml,
+slam_toolbox.yaml, noise models, URDF) unchanged (`git diff 9023ec4` on these files is empty).
+
+### sensor_monitor_node (system)
+- Subscribes /odom, /imu, /scan with the sensor-data QoS (best effort; compatible with the
+  reliable publishers of the stand). Arrival time = node clock (use_sim_time) in the callback.
+- State machine in `gnssd_tools/sensor_health.py` (plain Python, no ROS): WAITING / OK / LOST,
+  each transition returned once; WARN on OK->LOST (with the silence), INFO on LOST->OK (with the
+  outage duration). 10 Hz check timer.
+- Operator report: diagnostic_msgs/DiagnosticArray on /diagnostics (1 Hz and immediately on every
+  transition), one status per sensor: level OK / WARN (rate below 50 % of expected) / ERROR (LOST)
+  / STALE (WAITING), message, key-values last_age_s, timeout_s, expected_rate_hz,
+  measured_rate_hz. Standard ROS health channel -> rqt_robot_monitor / `ros2 topic echo`.
+- `config/sensor_monitor.yaml`: timeout = 5 x nominal period (odom 0.10 s, imu 0.05 s, scan
+  0.50 s): five missing messages cannot be normal jitter, yet the loss is reported within
+  timeout + 0.1 s. Launch arg `sensor_monitor:=true`; added to resource_logger's system list.
+- Start-up fix found while testing: before the first /clock message the node clock reads 0, so
+  early messages got time 0 and were reported LOST 1 s later; nothing is evaluated while the
+  clock is 0.
+- Unit tests `test/test_sensor_health.py`:
+```
+$ python3 -m pytest -q test/test_sensor_health.py
+7 passed   (start, no message ever, timeout -> LOST once, recovery with outage duration,
+            measured rate, rate known only after a full window, clock jump back)
+```
+
+### scan_gate_node (stand)
+Bridge publishes /scan_raw; the gate relays it unchanged (same header, reliable depth 10 like the
+bridge) to /scan except inside `scan_dropout` windows (YAML list of [t_start, t_end] in sim time,
+t_end = -1 = until the end). Always in the chain (no windows = pass-through). Time base = the scan
+header stamp, so the gate runs WITHOUT use_sim_time (documented exception, see below).
+Pass-through measurement (probe subscribed to /scan_raw and /scan, wall-clock receive times per
+header stamp, 40 s, first 5 s skipped):
+```
+added latency: mean 0.509 ms, median 0.433 ms, p95 1.029 ms, max 2.005 ms   (199 scans)
+gate CPU (1 core = 100 %): mean 0.75 %, max 1.0 %; RSS 60.6 MiB
+```
+First version with use_sim_time: 45 % of a core — all of it from /clock (see next section).
+run_info.yaml stores `scan_dropout_windows`. bags/index.csv quotes extra_args (they contain commas).
+
+### /clock cost of Python nodes (simulation artifact)
+Gazebo publishes /clock at 1 kHz; every rclpy node with use_sim_time handles all of it:
+```
+idle rclpy node with use_sim_time only:  43.1 % of one core (mean, 30 s)
+sensor_monitor_node:                     59.8 % of one core
+scan_gate_node (no use_sim_time):         0.7 %
+```
+So ~43 of sensor_monitor_node's ~60 % is /clock handling, which does not exist on the real robot;
+its own work is ~17 % of a core. Resource tables below show the measured value; the
+"without /clock" figure is measured minus 43 %. (Alternative for discussion: let the monitor use a
+steady clock, which is what it would use on the robot.)
+
+### Pass-through check: room_loop, seed 1 (gate in the chain, no windows)
+
+| estimate | RMSE | mean | max | heading RMSE |
+|---|---|---|---|---|
+| /odom | 0.478 m | 0.399 m | 1.010 m | 7.91 deg |
+| /odometry/filtered | 0.078 m | 0.070 m | 0.121 m | 0.31 deg |
+| TF map->base_link | 0.013 m | 0.012 m | 0.036 m | 0.15 deg |
+
+Step 4 seed 1 (no gate): 0.477 / 0.077 / 0.029 m; earlier seed-1 test runs gave 0.0125 and 0.0138 m
+for the corrected estimate -> within run-to-run noise. 3 loop closures. Node census identical at
+t = 5 s and t = 215 s.
+
+### Dropout scenarios
+room_dropout: route_room, 2 laps, `scan_dropout:=[[140,200]]` (60 s in the second lap; at 140 s the
+robot is at ~(5.7, 0) moving east, at 200 s on the north side heading west).
+warehouse_dropout: route_warehouse, `scan_dropout:=[[285,405]]` (120 s from just before the long
+repetitive aisle 2 (entered at ~293 s) to its end).
+
+#### Detection (all 6 runs identical)
+| event | time |
+|---|---|
+| gate CLOSED | t1 = 140.00 s (room) / 285.00 s (warehouse) |
+| sensor_monitor WARN "scan LOST" | t1 + 0.50 s, silence 0.60 s (last scan at t1 - 0.1 s; timeout 0.5 s + check period 0.1 s) |
+| gate OPEN | t2 = 200.00 s / 405.00 s |
+| sensor_monitor INFO "scan OK again" | t2 + 0.00–0.01 s, "outage of 60.10 s" / "120.10 s" |
+
+/diagnostics excerpt (room_dropout seed 1, "sensor_monitor: scan"):
+```
+t= 140.00  level=OK     message="OK"                          last_age_s=0.096
+t= 140.50  level=ERROR  message="LOST: no message for 0.60 s"  last_age_s=0.596
+t= 199.00  level=ERROR  message="LOST: no message for 59.10 s" last_age_s=59.096
+t= 200.00  level=WARN   message="rate low: 0.0 Hz of 10.0 Hz"  last_age_s=0.000
+t= 201.00  level=OK     message="OK"                          last_age_s=0.097  measured_rate_hz=10.0
+```
+(The one "rate low" right after recovery — rate window not filled yet — is removed by the
+rate warm-up fix below.)
+
+#### Node liveness (FR-14, NFR-8)
+In all 6 dropout runs: no system node exited or restarted; node census lines at t = 5 s and at the
+last line before shutdown (215 s / 890 s) contain the same nodes (ekf_filter_node, slam_toolbox,
+sensor_monitor_node and all stand nodes). The only difference ever seen was the ros2 CLI daemon
+(`/_ros2cli_daemon_*`, left over from run_batch's node check) exiting after idling — not a project
+node. /odometry/filtered during the outage: 1800 msgs / 60 s = **30.00 Hz** (room, all seeds),
+3600 msgs / 120 s = **30.00 Hz** (warehouse, all seeds).
+
+#### Accuracy before / during / after the outage (ATE, not aligned)
+
+| run | estimate | before RMSE | during RMSE / max | after RMSE / max | re-convergence (< 0.1 m for 5 s) |
+|---|---|---|---|---|---|
+| room s1 | base | 0.063 m | 0.101 / 0.120 m | 0.057 / 0.086 m | |
+| | corrected | 0.014 m | 0.084 / **0.126** m | 0.017 / 0.119 m | **0.2 s** |
+| room s2 | base | 0.088 m | 0.143 / 0.185 m | 0.035 / 0.066 m | |
+| | corrected | 0.014 m | 0.092 / **0.147** m | 0.029 / 0.147 m | **0.2 s** |
+| room s3 | base | 0.059 m | 0.086 / 0.128 m | 0.082 / 0.116 m | |
+| | corrected | 0.020 m | 0.062 / **0.088** m | 0.021 / 0.068 m | **0.0 s** (never above) |
+| wh s1 | base | 0.257 m | 0.287 / 0.383 m | 0.436 / 0.726 m | |
+| | corrected | 0.107 m | 0.114 / **0.203** m | **9.411 / 17.451 m** | **not recovered** |
+| wh s2 | base | 0.280 m | 0.225 / 0.406 m | 0.355 / 0.567 m | |
+| | corrected | 0.067 m | 0.264 / **0.449** m | **5.811 / 10.946 m** | **not recovered** |
+| wh s3 | base | 0.248 m | 0.277 / 0.555 m | 0.766 / 1.373 m | |
+| | corrected | 0.050 m | 0.092 / **0.198** m | **5.520 / 10.059 m** | **not recovered** |
+
+Whole run (corrected): room 0.047 / 0.053 / 0.038 m RMSE; warehouse 7.02 / 4.33 / 4.12 m RMSE.
+Loop closures: room 1 / 0 / 0, warehouse 0 / 1 / 1 (the warehouse closures at ~718 s are made
+against the corrupted map).
+
+During the outage map->odom stays frozen (e.g. warehouse s1: (0.138, 0.301, -0.6 deg) from 285.1 s
+until 405.2 s), so the corrected estimate follows the base layer (its error grows by the base
+layer's drift, max 0.09–0.45 m).
+
+#### Failure: no re-localisation after the warehouse outage
+At the first scan after the outage slam_toolbox registers it at a wrong place and map->odom jumps:
+```
+warehouse s1: map->odom  t=285.1 (0.138, 0.301, -0.6 deg)  ->  t=405.2 (10.222, -13.485, 39.4 deg)
+warehouse s3: map->odom  t=284.0 (0.200, -0.338, 1.8 deg)   ->  t=405.3 (5.218, -9.339, 25.7 deg)
+```
+and stays there (s1 at 800 s: (10.0, -13.5, 38.8 deg)). The map built after 405 s is a second,
+rotated (~40 deg) copy of the warehouse (`docs/img/step5_warehouse_dropout_seed1_map.png`).
+Interpretation: during 120 s the robot moved ~24 m along the repetitive aisle into an area the map
+had barely seen; the first new scan resembles several places of the warehouse and the scan matcher
+picks a wrong one (perceptual aliasing). Not tuned (as required). In the room (60 s, second lap,
+known area) the corrected error falls back below 0.1 m within 0.2 s.
+Figures: `docs/img/step5_warehouse_dropout_seed1_error.png` (base vs corrected over time, outage
+shaded), `docs/img/step5_room_dropout_seed1_error.png`, `docs/img/step5_warehouse_dropout_seed1_map.png`.
+
+### Resources (system processes, 8 cores)
+
+| run | process | CPU 1-core mean / max | RSS mean / max |
+|---|---|---|---|
+| room_loop s1 | ekf_filter_node | 14.4 / 16.0 % | 28.5 / 29.0 MiB |
+| | async_slam_toolbox_node | 13.7 / 36.0 % | 46.6 / 50.8 MiB |
+| | sensor_monitor_node | 62.3 / 66.0 % (≈19 % without /clock) | 62.4 / 62.4 MiB |
+| | **system** | **90.4 / 111.0 %** (11.3 / 13.9 % of 8 cores) | **137.5 / 142.1 MiB** |
+| room_dropout s1–s3 | system | 88.1–90.4 / 99–106 % | 137.1–137.6 / 138–139 MiB |
+| warehouse_dropout s1–s3 | system | 87.4–88.7 / 100–109 % | 142.5–143.2 / 148.7–149.6 MiB |
+
+(sensor_monitor_node 61–63 % mean, RSS 62 MiB in every run; ~43 % of it is /clock handling.)
+
+### Fixes after the runs
+1. **Clean shutdown, second iteration.** With rclpy's handler off, Python's default SIGINT
+   handler can raise KeyboardInterrupt inside a pybind11 call -> the same RuntimeError
+   (node_census_node in room_dropout s1), and scan_gate_node (no timers, no /clock) waited for a
+   scan that never came and was SIGTERM-ed after 5 s. `node_runner.py` now installs its own
+   SIGINT/SIGTERM handler that only sets a flag; nodes spin with spin_once(timeout 0.1 s) and check
+   it. route_driver_node and run_info_writer_node use the same flag. Check (3 start/stop cycles of
+   sim.launch.py with driving): tracebacks 0, escalations 0, processes died 0, "finished cleanly"
+   11 of 11 in each cycle.
+2. **tf_to_tum.py zero-order hold.** slam_toolbox re-sends map->odom with the stamp of the last
+   scan while no scans arrive; the script interpolated across the gap and smeared the post-outage
+   jump back over the outage (warehouse s1 "during" error 3.6 m instead of 0.20 m). Gaps longer
+   than 1 s are now held. Normal runs are unaffected (map->odom stamps every 0.10 s, no gap > 1 s;
+   room_loop s1 and warehouse_loop s1 ATE identical to 6 digits).
+3. **Rate warm-up in sensor_monitor.** "rate low" is reported only after the sensor has been OK
+   for a full rate window (2 s); removes the transient WARN at start-up and after recovery.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+24 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 9 tests, 0 errors, 0 failures, 0 skipped
+```
