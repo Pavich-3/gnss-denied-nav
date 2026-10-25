@@ -1312,7 +1312,7 @@ The extra ~8–12 % is the Python handling of /tf (map->odom 50 Hz + odom->base_
 robot_state_publisher) and /odometry/filtered (30 Hz). System total (ekf + slam + monitor):
 51.9–52.7 / 67–72 % of one core.
 
-Open item: /correction_valid is not in record.launch's topic list (the timeline above comes from the
+Open item (done in Step 6): /correction_valid is not in record.launch's topic list (the timeline above comes from the
 log and /diagnostics); add it when the recording profile is next changed.
 
 ```
@@ -1324,4 +1324,161 @@ $ ament_pep257 src/gnssd_tools
 No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 16 tests, 0 errors, 0 failures, 0 skipped
+```
+
+## Step 6 — map_manager_node (2026-10-25)
+
+Commits: code b53b1f0, fix 3dc6fe9 (one checkpoint per scan loss). ekf.yaml, noise models and
+slam_toolbox.yaml (mapping) unchanged; slam_toolbox not tuned.
+
+### What was added
+- `gnssd_interfaces`: SaveMap (name), SetMode (mode, map_name, x, y, yaw, use_base_pose), GetStatus.
+- `map_manager_node` (SYSTEM): `~/save_map`, `~/set_mode`, `~/status`; start-up mode/map/pose from
+  launch args (FR-12); runs slam_toolbox as a child process (`slam_mapping.launch.py` /
+  `slam_localization.launch.py`) in its own process group, stop = SIGINT -> SIGTERM -> SIGKILL;
+  after every switch calls `/sensor_monitor_node/reset_correction_check`; events on
+  `/map_manager/events` (recorded, transient local). Optional `checkpoint_on_scan_lost` (default false).
+- `config/slam_toolbox_localization.yaml`: package `mapper_params_localization.yaml` with 4 changes,
+  each documented in the file header: use_sim_time true (added), mode mapping -> localization
+  (package file is a template), base_frame base_footprint -> base_link, max_laser_range 20 -> 12
+  (lidar model). map_file_name / map_start_pose are passed at launch.
+- `config/map_manager.yaml`: service_timeout 30 s, grid_save_timeout 10 s, stop_timeout 10 s.
+- run.launch.py: `route`, `spawn_*`, `slam_mode`, `slam_map`, `slam_x/y/yaw`,
+  `checkpoint_on_scan_lost`, `save_map_as` (save when the route is done), `operator_recovery`
+  (scripted_operator_node, STAND). record.launch: + /correction_valid, /map_manager/events.
+  resource_logger: + map_manager_node, localization_slam_toolbox_node. `maps/` is git-ignored
+  (run outputs, like bags; otherwise the clean-tree guard fails after the first save).
+
+Problems found while testing:
+- slam_toolbox's `/slam_toolbox/save_map` starts `map_saver_cli` with a 2 s timeout -> "Failed to
+  spin map subscription", no .pgm/.yaml. map_manager runs `map_saver_cli` itself with
+  `save_map_timeout` 10 s (measured: ~3 s needed).
+- map_manager with use_sim_time: 81 % of one core (1 kHz /clock). It needs no ROS clock (compares
+  message stamps only) -> use_sim_time false, like scan_gate/sensor_monitor: 14.5 % in a probe.
+- localization_slam_toolbox_node refuses serialize_map ("Cannot call serialize map in localization
+  mode!") but answers result=0 (= RESULT_SUCCESS) -> map_manager checks the files, not the code.
+- Two /diagnostics callbacks in parallel (multi-threaded executor) both saw "scan just LOST" -> the
+  checkpoint was serialized twice (run 211640). Fixed with a lock (3dc6fe9); re-run: one checkpoint.
+
+Smoke test (operator commands, headless sim):
+```
+save_map {name: smoke}            -> success=True, files .posegraph .data .pgm .yaml
+save_map {name: ../bad}           -> success=False 'Invalid map name "../bad"'
+set_mode localization nope        -> success=False 'Map "nope" not found ... (need .posegraph and .data)'
+set_mode localization smoke       -> success=True 'localization on smoke'
+save_map {name: smoke2} (loc.)    -> success=False 'Saving is only possible in mapping mode (now: localization)'
+set_mode mapping                  -> success=True; one slam_toolbox process (async) afterwards
+[event] mode mapping -> localization (operator); previous slam stopped by SIGINT
+[event] mode localization -> mapping (operator); previous slam stopped by SIGINT
+use_base_pose while driving: initial pose (-0.033, 3.300, -93.8 deg); 15 s later map->base_link
+(0.908, -0.056) vs ground truth (0.894, -0.057)
+```
+
+### B. Verification runs (ATE without alignment; corrected = TF map -> base_link)
+
+| run (bag) | mode | corrected RMSE / max | base RMSE |
+|---|---|---|---|
+| room_loop_seed1_20261025_203250, save_map_as:=room_s1 | mapping | 0.011 / 0.030 m | 0.077 m |
+| room_loc_seed2_20261025_203708 (room_s1, start origin) | localization | 0.016 / 0.038 m | 0.106 m |
+| room_loc_east_seed3_20261025_204103 (route room_east, spawn = initial pose (7, 2, 90°)) | localization | 0.010 / 0.032 m | n/a (odom starts at 0) |
+| warehouse_loop_seed1_20261025_204547, save_map_as:=wh_s1 | mapping | 0.077 / 0.137 m | 0.368 m |
+| warehouse_loc_seed2_20261025_210114 (wh_s1) | localization | 0.072 / 0.141 m | 0.314 m |
+
+B1 map: results/step6/room_s1.png (walls, island and obstacles sharp, no doubling), wh_s1.png.
+
+```
+== room_loop_seed1_20261025_203250 (events from the bag)
+     0.82 s  mode stopped -> mapping (start-up); previous slam stopped by none; new pid 258766
+   230.32 s  save map=room_s1 ok=True files=room_s1.posegraph,room_s1.data,room_s1.pgm,room_s1.yaml
+== room_loc_seed2_20261025_203708                               (B5 / FR-12: started in localization)
+     0.71 s  load map=room_s1 pose=(0.000, 0.000, 0.00 deg)
+     0.71 s  mode stopped -> localization (start-up); previous slam stopped by none; new pid 259414
+== room_loc_east_seed3_20261025_204103
+     1.38 s  load map=room_s1 pose=(7.000, 2.000, 90.00 deg)
+     1.38 s  mode stopped -> localization (start-up); previous slam stopped by none; new pid 259905
+```
+
+B4 / FR-13 (sha256 and mtime before vs after both room localization runs; same for wh_s1):
+```
+5bbf2c6a86a784fcf3dadbe49f6610395f2a79894ea5731a17abc48a42dfa5ba  maps/room_s1.data
+a1b2c72296aade8043cd24cc230265d761c42057cfc898109724b72be764d24e  maps/room_s1.pgm
+7dd9d2e4d765ad06323fc850224ce15f3db13e22eb89d63b5e0bad36aa199129  maps/room_s1.posegraph
+3d366065a0e1bcfe1f2b8781a40dabb3646fa3df746dd18d515f6e9ef8137591  maps/room_s1.yaml
+$ diff room_s1_hashes_before.txt room_s1_hashes_after.txt  -> HASHES IDENTICAL, MTIME IDENTICAL
+$ diff wh_s1_hashes_before.txt wh_s1_hashes_after.txt      -> WH HASHES IDENTICAL
+```
+No save or serialize event in any localization bag (only `load` + `mode`).
+
+### C. Checkpoint on scan loss + operator recovery (warehouse_dropout seed 1, outage 285–405 s)
+
+Why the checkpoint is an automatic safety action and the switch is an operator command: saving
+the graph when the lidar is LOST changes nothing in the running estimate and protects the map
+before any post-outage scan can corrupt it (Step 5b) — it is cheap and always safe, so it can be
+automatic (switchable, default off). Switching to localization replaces the correction layer and
+its map; whether that is right depends on the situation (e.g. is the robot in a mapped area?),
+so it stays an operator decision. In the test a scripted "operator" (stand) calls
+`set_mode(localization, last_checkpoint, use_base_pose=true)` 3 s after /correction_valid = false.
+
+Run warehouse_dropout_recovery_seed1_20261025_231235 (commit 3dc6fe9), timeline (sim time):
+```
+ 285.44 scan LOST: no message for 0.55 s
+ 285.44 EVENT checkpoint requested map=checkpoint_1792963055 (lidar LOST)
+ 285.46 EVENT save map=checkpoint_1792963055 ok=True files=checkpoint_1792963055.posegraph,.data
+ 405.14 correction_valid False: INVALID since t = 405.30 s: heading jump 40.2 deg > allowed 5.1 deg
+ 408.25 EVENT load map=checkpoint_1792963055 pose=(24.725, 7.588, 0.49 deg)
+ 408.25 EVENT mode mapping -> localization (operator (initial pose from the base layer));
+        previous slam stopped by SIGINT; new pid 275152
+ 408.25 correction_valid True   (reset after the switch)
+ 745.95 correction_valid False  (see below)
+```
+
+| | corrected after the outage (405–894 s) RMSE / max | re-convergence (< 0.1 m for 5 s) |
+|---|---|---|
+| no recovery, same seed (Step 5c, warehouse_dropout_seed1_20261025_193318) | 9.399 / 17.369 m | not recovered |
+| recovery, run 211640 (b53b1f0, duplicate checkpoint) | 0.924 / 2.126 m | 339.1 s |
+| **recovery, run 231235 (3dc6fe9)** | **0.820 / 1.586 m** | 341.0 s |
+
+Initial pose error (base layer propagated from the last valid map->odom): 0.236 m, 0.49°
+(run 211640: 0.252 m, 0.46°). Time from the alarm to localization running: 3.1 s (the scripted
+operator's reaction delay).
+
+Corrected error after the switch (run 231235): t=412 s 0.36 m / heading +3.15°; 450 s 0.57 m;
+600 s 1.29 m; 744 s 0.22 m / +3.40°; 747 s 0.08 m / -0.19°; 890 s 0.008 m
+(run 211640: heading -5.4° from 411 s to 744 s, then 0.04 m).
+
+Finding: the initial pose is good, but localization locks onto a heading 3–5° off right after the
+switch and keeps it until t ≈ 745 s. From 408 s to 740 s the robot drives 3.6–11 m away from any
+pose of the checkpoint graph (that part of the warehouse was driven only during the outage), so
+there is no correct map to match against; it snaps back as soon as it is within ~1 m of the
+pre-outage path (745 s). The consistency check flags this correct snap as a heading jump (it
+cannot tell a correction from a corruption) -> INVALID at 745.95 s; the scripted operator acts only
+once. slam_toolbox was not tuned (Step 6 rule).
+
+Node census (run 211640): /slam_toolbox listed twice at 415–425 s. resources.csv shows the two
+processes never alive together (last async sample 2 s before the first localization sample): the
+second name is the stale DDS discovery entry of the stopped node, gone within ~20 s. No orphan
+processes after any switch or shutdown (smoke tests and all runs: `ros2 node list` empty, no
+slam_toolbox / gz / gnssd_tools process left).
+
+### Resources of map_manager_node (resource_logger, recorded runs)
+
+| run | map_manager CPU 1-core mean / max | RSS |
+|---|---|---|
+| room_loop s1 (mapping) | 22.2 / 26.1 % | 62.9 MiB |
+| room_loc s2 | 20.3 / 24.9 % | 62.8 MiB |
+| warehouse_loop s1 | 20.1 / 25.0 % | 63.4 MiB |
+| warehouse_dropout_recovery s1 (3dc6fe9) | 22.1 / 28.1 % | 64.0 MiB |
+
+Mostly Python handling of /tf (93 Hz) and /odometry/filtered (30 Hz), as for sensor_monitor_node.
+localization_slam_toolbox_node: 13.4–13.9 / 33–39 %, 52–57 MiB (async in mapping: 12.6–13.7 %).
+
+```
+$ colcon build --symlink-install
+Summary: 4 packages finished
+$ ament_flake8 src/gnssd_tools
+31 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --all
+Summary: 22 tests, 0 errors, 0 failures, 0 skipped
 ```
