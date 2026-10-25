@@ -1057,3 +1057,145 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --verbose
 Summary: 9 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 5b — Root cause of the post-outage failure, sensor_monitor clock (2026-10-25)
+
+Commits: `f176b79` (Step 5 state; diagnostic run), `05646e9` (sensor_monitor steady clock, RTF check).
+ekf.yaml, slam_toolbox.yaml and the noise models are unchanged (the diagnostic run flipped only
+`debug_logging`, see below, and it was reverted: `git diff` empty).
+
+### 1. Root cause (evidence)
+
+**Source (slam_toolbox tag 2.6.10, `lib/karto_sdk/src/Mapper.cpp`):**
+- `Mapper::Process`: the new scan's pose is predicted from the last processed scan
+  (`Transform lastTransform(pLastScan->GetOdometricPose(), pLastScan->GetCorrectedPose());`
+  `pScan->SetCorrectedPose(lastTransform.TransformPose(pScan->GetOdometricPose()));`), then
+  `if (m_pUseScanMatching->GetValue() && pLastScan != NULL)` it is matched with
+  `m_pSequentialScanMatcher->MatchScan(pScan, ...GetRunningScans(...), bestPose, ...)` and
+  `pScan->SetSensorPose(bestPose);` — **the response returned by MatchScan is discarded; the pose
+  is accepted whatever the match quality** (minimum responses exist only for near-chain links and
+  loop closures).
+- Running scans (`AddRunningScan`): the last `scan_buffer_size` (10) scans, trimmed so that the
+  first and last are at most `scan_buffer_maximum_scan_distance` (10 m) apart.
+- `ScanMatcher::MatchScan`: search centred at the predicted pose; coarse window
+  `correlation_search_space_dimension` 0.5 m (±0.25 m) and `coarse_search_angle_offset` 0.349 rad
+  (±20°). **Response expansion**: `if (m_pUseResponseExpansion ...) { if (math::DoubleEqual(bestResponse, 0.0)) { ... newSearchAngleOffset += DegreesToRadians(20); ... (up to 3 times)`
+  i.e. with a zero response the angular window grows to ±40°, ±60°, ±80°. Its message
+  ("Mapper Info: Expanding response search space!") is inside `#ifdef KARTO_DEBUG`, which is commented
+  out in 2.6.10 — the installed library contains no such strings (`strings libkartoSlamToolbox.so`),
+  so `debug_logging: true` cannot show it (it only prints Ceres reports).
+- Loop closure (`TryCloseLoop` -> `CorrectPoses()`) is the only path that optimises the graph.
+
+**Diagnostic run** (warehouse_dropout seed 1, `debug_logging: true`, `allow_dirty: true`, otherwise
+identical to `f176b79`): 2 Ceres reports in the whole run, none at 405 s; map->odom again jumped at
+the first scan after the outage: t = 285.1 (0.045, 0.240, -0.6°) -> t = 405.2 (2.725, -6.298, 15.4°).
+Same seed, different angle than in Step 5 (40°): the outcome depends on timing, i.e. on noise.
+
+**Pose graph** (Step 5 bag, warehouse_dropout s1, /slam_toolbox/graph_visualization):
+```
+graph before: t=399.2, 62 vertices; after: t=409.0, 63 vertices
+largest shift of an OLD vertex between the two graphs: 0.0000 m     -> no optimisation, no loop closure
+last vertex before the outage: id 61 at (1.13, 5.63)
+new vertex id 62: map pos (23.90, 7.55); edges to vertices [61]     -> sequential link only
+true robot position at 405 s: (24.30, 7.50)
+vertices 62..69: (23.90,7.55) (24.62,8.17) (24.81,9.07) (24.27,9.79) (23.65,10.48) (22.94,11.04) ...
+  -> the chain turns ~40° too early: position of vertex 62 right, its heading wrong
+```
+
+**Overlap of the first post-outage scan with the running buffer** (world frame via ground truth,
+last 10 scans before t1 vs the first scan at t2; points within 0.10 m):
+
+| run | distance last scan -> first new scan | overlap |
+|---|---|---|
+| warehouse_dropout s1–s3 | 23.3 m | **0.3 %** (1 of 349 points) |
+| room_dropout s1–s2 / s3 | 7.0 / 6.9 m | **39.7 % / 36.9 %** |
+
+**Quantification (warehouse):**
+
+| seed | outage path | EKF displacement (true) | EKF error at 405 s | map->odom jump |
+|---|---|---|---|---|
+| 1 | 24.0 m | 23.02 m (23.32 m) | 0.38 m, 1.06° | 17.08 m, **40.0°** |
+| 2 | 24.0 m | 23.69 m (23.32 m) | 0.40 m, 0.78° | 10.78 m, **24.0°** |
+| 3 | 24.0 m | 23.11 m (23.32 m) | 0.56 m, -2.57° | 10.30 m, **23.9°** |
+
+The translation part of the jump is the rotation about the map origin: 2·24 m·sin(θ/2) = 16.4 m for
+40°, 10.0 m for 24° — the corrected *position* at 405 s was almost right, the *heading* was not.
+
+**Explanation.** During 120 s the robot drove 24 m; the graph got no vertex. The first new scan is
+matched only against the running buffer (scans taken 23 m back, around (1, 6)), with which it shares
+0.3 % of its points, so the correlation response is ~0. The best pose is then decided by noise inside
+the ±20° window, and when the response is exactly 0 the window is widened to ±40…80°
+(`use_response_expansion: true`); 24° and 40° are only reachable through the expansion, 15°
+(diagnostic run) also without it. Because `Mapper::Process` accepts the matched pose regardless of its
+response, a heading error of 15–40° enters the graph as a sequential edge (to vertex 61) and
+every later vertex, scan and map cell is built rotated — the second, rotated copy of the warehouse
+in the Step 5 map. No loop closure is involved (no vertex moved). Parameters that allowed it:
+`scan_buffer_size` 10 / `scan_buffer_maximum_scan_distance` 10 m (buffer cannot reach back 23 m),
+`coarse_search_angle_offset` 0.349 (±20°), `use_response_expansion` true (up to ±80°), and the absence
+of any acceptance threshold for sequential matches. The room recovered because after 60 s the robot
+was only 7 m from the last scans in a 10 x 8 m room the lidar sees almost entirely: 37–40 % overlap,
+so the match is well defined.
+
+### 2. sensor_monitor_node on the steady clock
+Arrival times and timers on the monotonic clock (`time.monotonic()`, `ClockType.STEADY_TIME`),
+`use_sim_time: false`. Real-time factor check: every 10 s one /clock message is taken (subscribe,
+one message, unsubscribe) and RTF = Δsim/Δsteady between two samples; WARN once if |RTF-1| > 5 %
+(`RealTimeFactorCheck` in sensor_health.py, unit-tested); RTF also published as a key-value.
+Log lines no longer contain sim time; detection latency is measured from the ROS log stamps.
+
+```
+$ python3 -m pytest -q test/test_sensor_health.py      -> 8 passed (adds the RTF check test)
+```
+
+| sensor_monitor_node | CPU 1-core mean / max | RSS |
+|---|---|---|
+| Step 5 (use_sim_time, 1 kHz /clock) | 59.8–62.3 / 66 % | 62.4 MiB |
+| Step 5b (steady clock), 30 s probe while driving | **11.1 / 12.0 %** | 62.1 MiB |
+| Step 5b, room_dropout s1 rerun (resource_logger) | **13.3 / 15.0 %** | 62.5 MiB |
+
+room_dropout seed 1 rerun at `05646e9`:
+```
+[scan_gate_node] Scan gate CLOSED (lidar dropout) at t = 140.00 s
+[sensor_monitor_node] Sensor scan LOST: no message for 0.57 s (timeout 0.5 s)
+[scan_gate_node] Scan gate OPEN (lidar back) at t = 200.00 s
+[sensor_monitor_node] Sensor scan OK again after an outage of 60.84 s     (60.1 s sim at RTF ~0.99)
+detection latency (log stamps): LOST 0.469 s after the gate closed; OK 0.001 s after it opened
+real_time_factor in /diagnostics: 202 reports, min 0.975, max 0.993  (no RTF warning)
+tracebacks 0, escalations 0, died 0; node census identical t = 5 s / 215 s; /odometry/filtered 30.00 Hz
+corrected: before 0.012 m RMSE; during 0.081 / max 0.119 m; after 0.016 m; re-convergence 0.2 s
+system CPU (ekf + slam + monitor): 40.1 / 58.0 % of one core (Step 5: 88–90 / 99–111 %)
+```
+
+### 3. /clock share of C++ nodes
+`demo_nodes_cpp listener` (subscribed to an unused topic, otherwise idle) next to the running
+simulation, 30 s, measured by the PID of the binary:
+```
+listener use_sim_time=true:  CPU 5.73 % (max 7.0 %), RSS 23.5 MiB
+listener use_sim_time=false: CPU 0.00 %,             RSS 23.4 MiB
+```
+So ~5.7 % of one core of ekf_filter_node and of async_slam_toolbox_node (both C++, use_sim_time) is
+/clock handling that does not exist on the real robot (Python: ~43 %).
+
+### 4. Mitigation options (proposed, not implemented)
+
+| option | where | what it does | warehouse case | normal runs | effort | ch. 2 architecture |
+|---|---|---|---|---|---|---|
+| **a) consistency check** | system node (extension of the monitoring function, or map_manager) | after a sensor outage (LOST->OK from sensor_monitor) compare the first change of map->odom with the uncertainty the base layer accumulated during the outage (EKF covariance from /odometry/filtered, e.g. 3σ + floor); on violation: ERROR on /diagnostics and mark the corrected estimate invalid (operator / Nav2 may fall back to the base layer) | detects all three runs (24–40° heading change vs EKF heading σ of a few degrees); does not stop the map from being corrupted | in-run corrections are ≤ 2 cm / < 1° -> no false alarm with a sensible floor | medium (new logic + thresholds, uses existing topics) | **yes**: observes only, like sensor_monitor |
+| **b) slam_toolbox parameters** | slam_toolbox.yaml | `use_response_expansion: false` bounds a blind match to ±20°; larger `scan_buffer_maximum_scan_distance` / `scan_buffer_size` let the buffer reach further back | reduces the worst case (40° -> ≤ 20°) but a 15° wrong heading (diagnostic run) still occurs; the buffer cannot help when the new area was never mapped | expansion is a recovery feature for normal runs, disabling it may cost robustness after fast turns; must re-verify Steps 4/4b | low (config) + full re-verification | yes (parameters only) |
+| **c) pause while LOST** | sensor_monitor -> slam_toolbox `/slam_toolbox/pause_new_measurements` service | stop feeding scans while the lidar is LOST; on resume keep the corrected estimate frozen until a scan overlaps the existing map (e.g. response / match against nearby graph nodes, Karto `ProcessAgainstNodesNearBy`), then resume mapping | prevents the rotated copy only if resumption waits for overlap; slam_toolbox 2.6 offers no "resume with constrained relocalisation" in mapping mode, so this needs custom code around it | no effect without outages | high | partly: requires sensor_monitor to act on slam_toolbox (it currently only observes) |
+| **d) localisation on the saved map** | map_manager | at LOST save the map (serialize_map); after a long outage restart slam_toolbox in localization mode with the base-layer pose as initial pose | keeps the map uncorrupted; but the robot is in an area the map barely covers, so localisation has little to match until it re-enters mapped space | none without outages | high (mode switching, restarts) | yes (map_manager role), but changes the mapping workflow |
+
+Recommendation: (a) first — cheap, purely observing, directly addresses FR-14/NFR-8 by making the
+failure visible; then evaluate (b) `use_response_expansion: false` as a separate, fully re-verified
+configuration change. (c)/(d) prevent the corruption but require control over slam_toolbox's modes.
+
+```
+$ colcon build --symlink-install
+Summary: 3 packages finished
+$ ament_flake8 src/gnssd_tools
+24 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --verbose
+Summary: 10 tests, 0 errors, 0 failures, 0 skipped
+```
