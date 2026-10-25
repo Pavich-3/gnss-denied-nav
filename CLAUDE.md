@@ -108,13 +108,14 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
   handler off -> clean shutdown, no Traceback).
 
 ## Conventions
-- `use_sim_time: true` everywhere (every node, every launch file). Exception:
-  scan_gate_node takes sim time from the scan header stamps and runs without
-  use_sim_time (documented in the node).
-- Gazebo publishes /clock at 1 kHz; with use_sim_time every rclpy node handles all
-  of it: ~43 % of one core per Python node (measured in Step 5). This is a
-  simulation artifact (no /clock on the real robot) and must be reported
-  separately in the resource numbers of Python system nodes.
+- `use_sim_time: true` everywhere (every node, every launch file). Exceptions
+  (documented in the nodes): scan_gate_node takes sim time from the scan header
+  stamps; sensor_monitor_node runs on the steady clock (as on the robot) and checks
+  RTF ~ 1 from one /clock sample every 10 s.
+- Gazebo publishes /clock at 1 kHz; every node with use_sim_time handles all of it:
+  ~43 % of one core for an rclpy node, ~5.7 % for an rclcpp node (measured in
+  Steps 5/5b). Simulation artifact (no /clock on the real robot): state it when
+  reporting CPU of ekf_filter_node / slam_toolbox (C++, use_sim_time).
 - Own nodes are Python (rclpy), in `gnssd_tools`.
 - All tunable values go into YAML under `src/gnssd_bringup/config/`; never
   hard-code them.

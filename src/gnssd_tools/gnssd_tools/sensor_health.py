@@ -19,7 +19,10 @@ Transitions:
 Every transition is returned exactly once as a `Transition`, so the caller
 can log it once instead of repeating the same warning at every check.
 
-Times are plain floats in seconds (the node passes its ROS clock, i.e. sim time).
+Times are plain floats in seconds (the node passes the steady clock).
+
+RealTimeFactorCheck (also here, also unit-tested) compares sim time with
+steady time from occasional /clock samples.
 """
 
 from collections import deque
@@ -125,3 +128,32 @@ class SensorWatch:
         if new_state == OK:
             self.ok_since = now
         return transition
+
+
+class RealTimeFactorCheck:
+    """
+    Compares simulation time with steady time from one /clock sample every period.
+
+    Plain Python; the node feeds it (steady time, sim time) pairs.
+    """
+
+    def __init__(self, tolerance):
+        self.tolerance = tolerance
+        self.previous = None
+        self.rtf = None
+        self.deviating = False
+
+    def add_sample(self, steady, sim):
+        """Store a sample; return 'deviation', 'back to normal' or None (state change only)."""
+        change = None
+        if self.previous is not None:
+            steady_elapsed = steady - self.previous[0]
+            sim_elapsed = sim - self.previous[1]
+            if steady_elapsed > 0.0 and sim_elapsed >= 0.0:
+                self.rtf = sim_elapsed / steady_elapsed
+                deviating = abs(self.rtf - 1.0) > self.tolerance
+                if deviating != self.deviating:
+                    change = 'deviation' if deviating else 'back to normal'
+                self.deviating = deviating
+        self.previous = (steady, sim)
+        return change

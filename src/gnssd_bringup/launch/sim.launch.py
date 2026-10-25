@@ -259,7 +259,9 @@ def generate_launch_description():
     sensor_monitor = Node(
         package='gnssd_tools',
         executable='sensor_monitor_node',
-        parameters=[sensor_monitor_config, {'use_sim_time': True}],
+        # Steady clock instead of sim time (see the node's docstring): use_sim_time
+        # would make it process the 1 kHz /clock.
+        parameters=[sensor_monitor_config, {'use_sim_time': False}],
         condition=IfCondition(LaunchConfiguration('sensor_monitor')),
         output='screen',
     )

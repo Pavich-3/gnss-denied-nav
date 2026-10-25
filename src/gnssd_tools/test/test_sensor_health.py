@@ -2,7 +2,7 @@
 
 import pytest
 
-from gnssd_tools.sensor_health import LOST, OK, SensorWatch, WAITING
+from gnssd_tools.sensor_health import LOST, OK, RealTimeFactorCheck, SensorWatch, WAITING
 
 
 def feed(watch, start, end, period):
@@ -88,3 +88,13 @@ def test_clock_jump_back_resets_to_waiting():
     assert watch.age(5.0) is None and watch.measured_rate() == 0.0
 
     assert watch.on_message(5.1).new_state == OK   # and it recovers normally
+
+
+def test_real_time_factor_check_reports_deviation_once():
+    check = RealTimeFactorCheck(tolerance=0.05)
+    assert check.add_sample(100.0, 50.0) is None          # first sample: no RTF yet
+    assert check.add_sample(110.0, 59.9) is None          # RTF 0.99: fine
+    assert check.rtf == pytest.approx(0.99)
+    assert check.add_sample(120.0, 68.9) == 'deviation'   # RTF 0.90
+    assert check.add_sample(130.0, 77.9) is None          # still deviating: reported once
+    assert check.add_sample(140.0, 87.9) == 'back to normal'

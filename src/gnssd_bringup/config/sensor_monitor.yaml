@@ -18,6 +18,12 @@ sensor_monitor_node:
     rate_window: 2.0         # s, window of the measured rate
     low_rate_fraction: 0.5   # OK sensor below 50 % of its expected rate -> WARN
 
+    # The monitor runs on the steady clock (see the node's docstring). Every
+    # rtf_check_period seconds it samples one /clock message and warns if the
+    # real-time factor deviates from 1 by more than rtf_tolerance.
+    rtf_check_period: 10.0   # s
+    rtf_tolerance: 0.05
+
     odom:
       topic: /odom
       type: odometry
