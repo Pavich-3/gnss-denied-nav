@@ -20,11 +20,11 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_description/worlds/room.sdf`: 10 x 8 m test room with a central island for a loop route.
 - `src/gnssd_description/worlds/warehouse.sdf`: 30 x 20 m warehouse with four rack rows and a long repetitive aisle.
 - `src/gnssd_bringup/launch/sim.launch.py`: starts Gazebo (seeded), robot, bridge, odometry noise, IMU covariance, EKF, sensor monitor, map_manager (which starts slam_toolbox), optional route driver and RViz.
-- `src/gnssd_bringup/launch/slam_mapping.launch.py`: slam_toolbox online async mapping (started by map_manager_node).
+- `src/gnssd_bringup/launch/slam_mapping.launch.py`: slam_toolbox online async mapping, new or continuing a saved graph (started by map_manager_node).
 - `src/gnssd_bringup/launch/slam_localization.launch.py`: slam_toolbox localization on a saved pose graph at a given initial pose (started by map_manager_node).
 - `src/gnssd_bringup/launch/record.launch.py`: records one run (rosbag2, sqlite3) plus run_info.yaml, loop_closures.yaml, resources.csv.
 - `src/gnssd_bringup/launch/run.launch.py`: one complete experiment (sim + route driver + recording), stops when the route is done; refuses to run with uncommitted changes.
-- `src/gnssd_bringup/config/ekf.yaml`: base layer EKF (robot_localization): fuses vx, vyaw from /odom and vyaw from /imu.
+- `src/gnssd_bringup/config/ekf.yaml`: base layer EKF (robot_localization): fuses vx, vy = 0, vyaw from /odom and vyaw from /imu; process noise derived in Step 6b.
 - `src/gnssd_bringup/config/slam_toolbox.yaml`: correction layer (slam_toolbox online async mapping); package defaults + 3 marked changes.
 - `src/gnssd_bringup/config/slam_toolbox_localization.yaml`: slam_toolbox localization mode; package defaults + marked changes.
 - `src/gnssd_bringup/config/map_manager.yaml`: timeouts of map_manager_node (service calls, grid saving, stopping slam_toolbox).
@@ -48,7 +48,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/sensor_health.py`: ROS-free sensor state machine (WAITING/OK/LOST) used by sensor_monitor_node.
 - `src/gnssd_tools/gnssd_tools/map_manager_node.py`: system node; selects mapping/localization, saves and loads maps, supervises slam_toolbox.
 - `src/gnssd_tools/gnssd_tools/map_manager_core.py`: ROS-free parts of map_manager_node (map files, command checks, child process stop).
-- `src/gnssd_tools/gnssd_tools/scripted_operator_node.py`: stand node; plays the operator who switches to localization on the last checkpoint after an alarm.
+- `src/gnssd_tools/gnssd_tools/scripted_operator_node.py`: stand node; plays the operator who switches to localization or mapping on the last checkpoint after an alarm.
 - `src/gnssd_tools/gnssd_tools/scan_gate_node.py`: stand node; relays /scan_raw to /scan, drops scans in dropout windows.
 - `src/gnssd_tools/gnssd_tools/node_census_node.py`: writes the list of running nodes every 5 s -> nodes.csv.
 - `src/gnssd_tools/gnssd_tools/node_runner.py`: common start/clean-shutdown of all own nodes.
@@ -58,6 +58,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/scripts/check_corrections.py`: replays the correction consistency check on recorded bags (offline validation).
 - `src/gnssd_tools/scripts/dropout_analysis.py`: errors before/during/after a lidar dropout, re-convergence time, plot.
 - `src/gnssd_tools/scripts/error_vs_distance.py`: position error vs distance from the start and vs travelled distance (TUM inputs).
+- `src/gnssd_tools/scripts/ekf_consistency.py`: compares the EKF covariance with its real errors (fraction inside 2-sigma, sigmas at the end).
 - `src/gnssd_tools/scripts/estimate_gyro_bias.py`: estimates the per-run gyro z bias from a bag (/imu_raw vs /ground_truth).
 - `src/gnssd_tools/scripts/map_to_png.py`: saves the last /map of a bag as a PNG (optionally with the ground truth).
 - `src/gnssd_tools/scripts/summarize_resources.py`: mean/max CPU and RSS per process and system from resources.csv.

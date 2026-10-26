@@ -48,8 +48,10 @@ def test_mode_command_validation(tmp_path):
     store = MapStore(str(tmp_path))
     ok, _, _ = validate_mode_command('flying', '', False, True, store)
     assert not ok
-    ok, _, name = validate_mode_command('mapping', 'whatever', False, False, store)
+    ok, _, name = validate_mode_command('mapping', '', False, False, store)
     assert ok and name == ''
+    ok, message, _ = validate_mode_command('mapping', 'missing', False, True, store)
+    assert not ok and 'not found' in message
     ok, message, _ = validate_mode_command('localization', 'room_s1', False, True, store)
     assert not ok and 'not found' in message
     touch(tmp_path / 'room_s1.posegraph')
@@ -83,3 +85,15 @@ def test_child_process_escalates_and_leaves_no_orphans():
     assert child.stop() in ('SIGTERM', 'SIGKILL')
     with pytest.raises(ProcessLookupError):
         os.killpg(group, 0)
+
+
+def test_mapping_can_continue_a_saved_graph(tmp_path):
+    store = MapStore(str(tmp_path))
+    for name in ('checkpoint_100', 'checkpoint_200'):
+        touch(tmp_path / f'{name}.posegraph')
+        touch(tmp_path / f'{name}.data')
+        time.sleep(0.02)
+    ok, message, name = validate_mode_command('mapping', LAST_CHECKPOINT, True, True, store)
+    assert ok and name == 'checkpoint_200' and 'continuing' in message
+    ok, _, _ = validate_mode_command('mapping', LAST_CHECKPOINT, True, False, store)
+    assert not ok   # use_base_pose without a known pose

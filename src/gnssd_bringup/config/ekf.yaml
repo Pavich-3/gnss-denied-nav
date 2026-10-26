@@ -27,12 +27,17 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom        # this EKF estimates the continuous odom -> base_link
 
-    # Wheel odometry: only the forward velocity vx and the yaw rate vyaw.
-    # Its pose is NOT fused: it is itself just an integral of these velocities.
+    # Wheel odometry: the forward velocity vx, the yaw rate vyaw and (Step 6b)
+    # the lateral velocity vy, which a differential drive cannot have: the
+    # odometry reports vy = 0 (variance 1e-9) and fusing it applies the no-slip
+    # constraint. Without it the unmeasured vy drifted in the filter and its
+    # variance grew without bound (P_vy ~1.5e-4 (m/s)^2 per second even with
+    # Q_vy = Q_ay = 1e-9), and through it sigma_x, sigma_y (docs/progress.md).
+    # The odometry pose is NOT fused: it is itself just an integral of these velocities.
     odom0: /odom
     odom0_config: [false, false, false,
                    false, false, false,
-                   true,  false, false,
+                   true,  true,  false,
                    false, false, true,
                    false, false, false]
     odom0_differential: false
@@ -47,8 +52,43 @@ ekf_filter_node:
                   false, false, false]
     imu0_differential: false
 
-    # process_noise_covariance is intentionally NOT set: the package default
-    # is used in this step (values recorded in docs/progress.md, Step 3).
-    # It will be tuned and the tuning documented in a later step.
+    # Process noise Q (Step 6b). robot_localization adds delta_t * Q to the
+    # covariance at every prediction (ekf.cpp, predict()), so every diagonal
+    # value is a variance per second (spectral density). Derivation (details
+    # and measurements in docs/progress.md, Step 6b):
+    #   x, y, yaw   1e-9  The pose is the integral of vx, vyaw: it has no noise
+    #                     source of its own. 1e-9 = the package's initial
+    #                     covariance, a numerical floor only. (Default 0.05 / 0.06
+    #                     gave sigma_yaw 44 deg after 10 s although the real
+    #                     heading error is < 1 deg.)
+    #   vx          2e-4  (m/s)^2/s: E[dv^2]/dt of the true forward velocity over one
+    #                     EKF step, measured from /odom_raw: 1.3e-4 (room), 3.1e-5
+    #                     (warehouse); room = worst case, rounded up.
+    #   vyaw        3e-4  (rad/s)^2/s: same for the yaw rate: 2.1e-4 (room, tightest
+    #                     turns), 4.1e-5 (warehouse); rounded up.
+    #   vy, ay      1e-9  differential drive: no lateral velocity (no-slip), so vy and
+    #                     its derivative ay stay 0 (vy = 0 is also fused from /odom).
+    #                     With the defaults (0.025, 0.01) and vy unmeasured, sigma_y
+    #                     grew to kilometres.
+    #   z, roll, pitch and their rates: package defaults (fixed by two_d_mode).
+    #   ax, az      package defaults (ax is observable through the vx measurements).
+    # No value was tuned on ATE.
+    process_noise_covariance: [
+       1.0e-9,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # x
+          0.0,  1.0e-9,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # y
+          0.0,     0.0,    0.06,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # z
+          0.0,     0.0,     0.0,    0.03,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # roll
+          0.0,     0.0,     0.0,     0.0,    0.03,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # pitch
+          0.0,     0.0,     0.0,     0.0,     0.0,  1.0e-9,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # yaw
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,  2.0e-4,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # vx
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,  1.0e-9,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # vy
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,    0.04,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   # vz
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,    0.01,     0.0,     0.0,     0.0,     0.0,     0.0,   # vroll
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,    0.01,     0.0,     0.0,     0.0,     0.0,   # vpitch
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,  3.0e-4,     0.0,     0.0,     0.0,   # vyaw
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,    0.01,     0.0,     0.0,   # ax
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,  1.0e-9,     0.0,   # ay
+          0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,     0.0,   0.015    # az
+    ]
 
     print_diagnostics: true

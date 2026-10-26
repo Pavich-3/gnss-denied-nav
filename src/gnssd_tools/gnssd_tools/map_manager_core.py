@@ -71,14 +71,15 @@ def validate_mode_command(mode, map_name, use_base_pose, base_pose_available, st
     """
     Check a set_mode request.
 
-    Returns (ok, message, resolved_map_name). For localization the map must
-    exist (LAST_CHECKPOINT is resolved to the newest checkpoint), and
+    Returns (ok, message, resolved_map_name). Localization needs a map;
+    mapping takes one optionally (then it continues that graph). A given map
+    must exist (LAST_CHECKPOINT is resolved to the newest checkpoint), and
     use_base_pose needs a known last valid pose.
     """
     if mode not in MODES:
         return False, f'Unknown mode "{mode}" (use "mapping" or "localization")', None
-    if mode == MAPPING:
-        return True, 'mapping', ''
+    if mode == MAPPING and not map_name:
+        return True, 'mapping (new map)', ''
     if map_name == LAST_CHECKPOINT:
         map_name = store.latest_checkpoint()
         if map_name is None:
@@ -88,6 +89,8 @@ def validate_mode_command(mode, map_name, use_base_pose, base_pose_available, st
                        '(need .posegraph and .data)', None)
     if use_base_pose and not base_pose_available:
         return False, 'No valid corrected pose known yet, give x/y/yaw explicitly', None
+    if mode == MAPPING:
+        return True, f'mapping, continuing {map_name}', map_name
     return True, f'localization on {map_name}', map_name
 
 

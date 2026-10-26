@@ -46,6 +46,13 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - Maps live in `maps/<name>.{posegraph,data,pgm,yaml}` (run outputs, ignored by git).
 - Services: `/map_manager_node/save_map` (gnssd_interfaces/SaveMap, mapping only),
   `/map_manager_node/set_mode` (SetMode), `/map_manager_node/status` (GetStatus).
+  set_mode: mapping (new map), mapping + map_name (continue that graph from the given
+  or base pose, START_AT_GIVEN_POSE), localization + map_name.
+- map_manager reads /tf and /odometry/filtered only at a switch with use_base_pose
+  (temporary subscription); while INVALID the reference map->odom comes from
+  sensor_monitor's diagnostics (last_valid_map_to_odom_*). sensor_monitor subscribes
+  the sensor topics raw (arrival time only). Keep both nodes free of high-rate
+  Python subscriptions they do not need (Step 6b: ~20 % -> ~1 % / ~24 % -> ~14 %).
 - The occupancy grid is saved with nav2 `map_saver_cli` run by map_manager (timeout
   in map_manager.yaml): slam_toolbox's own save_map uses a 2 s timeout that fails here.
 - slam_toolbox in localization mode refuses serialize_map but still answers

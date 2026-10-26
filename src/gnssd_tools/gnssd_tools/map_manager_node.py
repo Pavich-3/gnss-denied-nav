@@ -13,6 +13,13 @@ Requirements covered:
   FR-13  localize on the loaded map without changing it (localization_slam_toolbox_node
          refuses to serialize; map_manager never saves in localization mode)
 
+Modes (~/set_mode):
+  mapping                       new map from the given pose (normally the origin)
+  mapping + map_name            CONTINUE mapping on a saved pose graph, starting at the
+                                given pose (slam_toolbox START_AT_GIVEN_POSE, Step 6b):
+                                the new scans extend the old graph
+  localization + map_name       localize on a saved graph without changing it
+
 How slam_toolbox is run. The slam_toolbox 2.6.10 nodes are plain (not
 lifecycle) nodes and the mode is fixed when a node starts, so a mode switch
 means: stop the running node, start the other one. map_manager supervises it
@@ -27,14 +34,20 @@ sensor_monitor reports the lidar LOST while mapping, the current pose graph is
 serialized to maps/checkpoint_<time>, i.e. before any post-outage scan can
 corrupt it. The operator can later localize on it (map_name "last_checkpoint").
 
-Initial pose for localization (use_base_pose): the last VALID corrected pose
-propagated with the base layer, i.e. the map -> odom of the newest update
-before the correction became INVALID, composed with the current EKF pose in
-odom.
+Initial pose with use_base_pose: the last VALID corrected pose propagated with
+the base layer, i.e. map -> odom of the last valid update composed with the
+current EKF pose in odom. While the correction is INVALID, "last valid" comes
+from sensor_monitor's diagnostics (last_valid_map_to_odom_*: the update before
+the alarm); otherwise it is the current map -> odom.
+
+CPU (Step 6b): /tf and /odometry/filtered are NOT subscribed permanently (that
+cost ~20 % of a core in Python). Both are read once, at the moment a switch
+with use_base_pose needs them: a temporary subscription waits for one message
+and is destroyed again.
 
 Services:   ~/save_map (gnssd_interfaces/SaveMap), ~/set_mode (SetMode), ~/status (GetStatus)
 Publishes:  /map_manager/events (std_msgs/String), one line per mode switch / save / load
-Subscribes: /tf (map -> odom), /odometry/filtered, /correction_valid, /diagnostics
+Subscribes: /correction_valid, /diagnostics; /tf and /odometry/filtered once per switch
 Calls:      /slam_toolbox/serialize_map, /sensor_monitor_node/reset_correction_check
 Runs:       nav2_map_server map_saver_cli for the occupancy grid (.pgm/.yaml)
 
@@ -44,7 +57,6 @@ is too short on this machine while the simulation is running (the saver did
 not receive the latched /map in time, "Failed to spin map subscription").
 """
 
-from collections import deque
 import math
 import os
 import subprocess
@@ -62,11 +74,11 @@ from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
 
-from gnssd_tools.map_manager_core import (ChildProcess, LOCALIZATION, MapStore, MAPPING,
+from gnssd_tools.map_manager_core import (ChildProcess, MapStore, MAPPING,
                                           validate_mode_command)
 from gnssd_tools.node_runner import run_node
 
-HISTORY_SECONDS = 300.0   # how much map -> odom history is kept for use_base_pose
+SAMPLE_TIMEOUT = 2.0      # s, wait for one /tf or /odometry/filtered message at a switch
 
 
 def yaw_from_quaternion(q):
@@ -80,6 +92,21 @@ def compose(a, b):
     return (ax + math.cos(ayaw) * bx - math.sin(ayaw) * by,
             ay + math.sin(ayaw) * bx + math.cos(ayaw) * by,
             math.atan2(math.sin(ayaw + byaw), math.cos(ayaw + byaw)))
+
+
+def map_to_odom_from_tf(msg):
+    """(x, y, yaw) of map -> odom if this /tf message contains it, else None."""
+    for transform in msg.transforms:
+        if transform.header.frame_id == 'map' and transform.child_frame_id == 'odom':
+            t = transform.transform
+            return (t.translation.x, t.translation.y, yaw_from_quaternion(t.rotation))
+    return None
+
+
+def pose_from_odometry(msg):
+    """(x, y, yaw) of an Odometry message."""
+    p = msg.pose.pose
+    return (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
 
 
 class MapManagerNode(Node):
@@ -104,10 +131,8 @@ class MapManagerNode(Node):
         self.switch_lock = threading.Lock()
 
         # Inputs for use_base_pose and the checkpoint.
-        self.map_to_odom_history = deque()   # (stamp, (x, y, yaw)), one per new stamp
-        self.base_pose = None                # EKF pose in odom (x, y, yaw)
         self.correction_valid = True
-        self.alarm_time = None               # stamp of the invalid map -> odom update
+        self.last_valid_map_to_odom = None   # from sensor_monitor while INVALID
         self.scan_lost = False
         # /diagnostics callbacks can run in parallel (multi-threaded executor):
         # the lock makes "scan just became LOST" true for exactly one of them,
@@ -127,10 +152,8 @@ class MapManagerNode(Node):
         self.create_service(SetMode, '~/set_mode', self.on_set_mode, callback_group=group)
         self.create_service(GetStatus, '~/status', self.on_status, callback_group=group)
 
+        self.group = group
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.create_subscription(TFMessage, '/tf', self.on_tf, 100, callback_group=group)
-        self.create_subscription(Odometry, '/odometry/filtered', self.on_base_pose, 10,
-                                 callback_group=group)
         self.create_subscription(Bool, '/correction_valid', self.on_correction_valid, latched,
                                  callback_group=group)
         self.create_subscription(DiagnosticArray, '/diagnostics', self.on_diagnostics, 10,
@@ -157,18 +180,19 @@ class MapManagerNode(Node):
             return False, message
         with self.switch_lock:
             stopped_by = self.child.stop()
-            if mode == MAPPING:
-                command = ['ros2', 'launch', 'gnssd_bringup', 'slam_mapping.launch.py']
-            else:
-                command = ['ros2', 'launch', 'gnssd_bringup', 'slam_localization.launch.py',
-                           f'map_file:={self.store.base_path(resolved_map)}',
-                           f'x:={pose[0]:.4f}', f'y:={pose[1]:.4f}', f'yaw:={pose[2]:.5f}']
+            launch_file = 'slam_mapping.launch.py' if mode == MAPPING else \
+                'slam_localization.launch.py'
+            command = ['ros2', 'launch', 'gnssd_bringup', launch_file]
+            if resolved_map:
+                # Load the saved graph and start at `pose` (mapping: continue the graph).
+                command += [f'map_file:={self.store.base_path(resolved_map)}',
+                            f'x:={pose[0]:.4f}', f'y:={pose[1]:.4f}', f'yaw:={pose[2]:.5f}']
             pid = self.child.start(command, log_file=self.child_log)
             previous = self.mode
             self.mode, self.map_name = mode, resolved_map
-            if mode == LOCALIZATION:
-                self.event(f'load map={resolved_map} pose=({pose[0]:.3f}, {pose[1]:.3f}, '
-                           f'{math.degrees(pose[2]):.2f} deg)')
+            if resolved_map:
+                self.event(f'load map={resolved_map} for {mode} pose=({pose[0]:.3f}, '
+                           f'{pose[1]:.3f}, {math.degrees(pose[2]):.2f} deg)')
             self.event(f'mode {previous} -> {mode} ({reason}); previous slam stopped by '
                        f'{stopped_by}; new pid {pid}')
         self.reset_correction_check()
@@ -178,14 +202,13 @@ class MapManagerNode(Node):
         """Tell sensor_monitor that the new slam_toolbox starts a new map -> odom."""
         if self.reset_client.wait_for_service(timeout_sec=2.0):
             self.call(self.reset_client, Trigger.Request(), timeout=5.0)
-        self.correction_valid, self.alarm_time = True, None
-        self.map_to_odom_history.clear()
+        self.correction_valid, self.last_valid_map_to_odom = True, None
 
     # ---- operator services --------------------------------------------------
 
     def on_set_mode(self, request, response):
         pose = (request.x, request.y, request.yaw)
-        if request.mode == LOCALIZATION and request.use_base_pose:
+        if request.use_base_pose and request.map_name:
             pose = self.last_valid_corrected_pose()
             if pose is None:
                 response.success = False
@@ -253,23 +276,6 @@ class MapManagerNode(Node):
 
     # ---- inputs -------------------------------------------------------------
 
-    def on_tf(self, msg):
-        for transform in msg.transforms:
-            if transform.header.frame_id != 'map' or transform.child_frame_id != 'odom':
-                continue
-            stamp = transform.header.stamp.sec + transform.header.stamp.nanosec * 1e-9
-            if self.map_to_odom_history and stamp <= self.map_to_odom_history[-1][0]:
-                continue   # the same update re-sent
-            pose = (transform.transform.translation.x, transform.transform.translation.y,
-                    yaw_from_quaternion(transform.transform.rotation))
-            self.map_to_odom_history.append((stamp, pose))
-            while stamp - self.map_to_odom_history[0][0] > HISTORY_SECONDS:
-                self.map_to_odom_history.popleft()
-
-    def on_base_pose(self, msg):
-        p = msg.pose.pose
-        self.base_pose = (p.position.x, p.position.y, yaw_from_quaternion(p.orientation))
-
     def on_correction_valid(self, msg):
         self.correction_valid = msg.data
 
@@ -277,8 +283,10 @@ class MapManagerNode(Node):
         for status in msg.status:
             if status.name == 'sensor_monitor: correction consistency':
                 values = {kv.key: kv.value for kv in status.values}
-                if 'alarm_time_s' in values:
-                    self.alarm_time = float(values['alarm_time_s'])
+                if 'last_valid_map_to_odom_x' in values:
+                    self.last_valid_map_to_odom = tuple(
+                        float(values[f'last_valid_map_to_odom_{key}'])
+                        for key in ('x', 'y', 'yaw'))
             elif status.name == 'sensor_monitor: scan':
                 lost = status.level == DiagnosticStatus.ERROR
                 with self.scan_state_lock:
@@ -295,15 +303,39 @@ class MapManagerNode(Node):
         self.event(f'checkpoint requested map={name} (lidar LOST)')
 
     def last_valid_corrected_pose(self):
-        """Compose map -> odom of the last valid update (before the alarm) with the EKF pose."""
-        if self.base_pose is None or not self.map_to_odom_history:
+        """Compose map -> odom of the last valid update with the current EKF pose."""
+        if not self.correction_valid:
+            map_to_odom = self.last_valid_map_to_odom   # the update before the alarm
+        else:
+            map_to_odom = self.read_one(TFMessage, '/tf', map_to_odom_from_tf)
+        base_pose = self.read_one(Odometry, '/odometry/filtered', pose_from_odometry)
+        if map_to_odom is None or base_pose is None:
             return None
-        candidates = self.map_to_odom_history
-        if not self.correction_valid and self.alarm_time is not None:
-            candidates = [entry for entry in candidates if entry[0] < self.alarm_time - 1e-6]
-        if not candidates:
-            return None
-        return compose(candidates[-1][1], self.base_pose)
+        return compose(map_to_odom, base_pose)
+
+    def read_one(self, message_type, topic, extract):
+        """
+        Subscribe, wait for the first message for which extract(msg) is not None, unsubscribe.
+
+        Used instead of permanent subscriptions: the value is needed only at a
+        switch. Returns None after SAMPLE_TIMEOUT.
+        """
+        result = []
+        done = threading.Event()
+
+        def callback(msg):
+            value = extract(msg)
+            if value is not None and not done.is_set():
+                result.append(value)
+                done.set()
+
+        subscription = self.create_subscription(message_type, topic, callback, 100,
+                                                callback_group=self.group)
+        done.wait(SAMPLE_TIMEOUT)
+        self.destroy_subscription(subscription)
+        if not result:
+            self.get_logger().error(f'No usable message on {topic} within {SAMPLE_TIMEOUT} s')
+        return result[0] if result else None
 
     # ---- helpers --------------------------------------------------------------
 

@@ -50,8 +50,20 @@ already understand it, so no custom message or GUI is needed.
 Subscriptions use the sensor-data QoS profile (best effort): it is compatible
 with the reliable publishers of the stand and never slows them down.
 
-Subscribes:  the topics in config/sensor_monitor.yaml (/odom, /imu, /scan);
-             /tf (map -> odom) and /odometry/filtered for the consistency check;
+CPU (Step 6b): the sensor topics are subscribed RAW (serialized bytes, not
+deserialized): only the arrival time of a message matters, and deserializing
+100 Hz IMU, 50 Hz odometry and 10 Hz scans in Python was most of the node's
+cost. /odometry/filtered is no longer subscribed: it was used only for the
+informational "position shift" of a correction, the check needs the heading
+of map -> odom alone.
+
+When the check becomes INVALID, the map -> odom of the last valid update is
+added to the diagnostic status (last_valid_map_to_odom_x/_y/_yaw):
+map_manager_node uses it as the reference for a recovery with use_base_pose,
+so it does not need its own /tf history.
+
+Subscribes:  the topics in config/sensor_monitor.yaml (/odom, /imu, /scan), raw;
+             /tf (map -> odom) for the consistency check;
              /clock for one message every rtf_check_period seconds
 Publishes:   /diagnostics (diagnostic_msgs/DiagnosticArray)
              /correction_valid (std_msgs/Bool, transient local)
@@ -119,8 +131,10 @@ class SensorMonitorNode(Node):
 
             self.watches[name] = SensorWatch(name, timeout, expected_rate, rate_window)
             self.topics[name] = topic
+            # raw=True: the callback gets the serialized bytes, nothing is deserialized.
             self.create_subscription(MESSAGE_TYPES[message_type], topic,
-                                     self.make_callback(name), qos_profile_sensor_data)
+                                     self.make_callback(name), qos_profile_sensor_data,
+                                     raw=True)
             self.get_logger().info(f'Watching {name} on {topic}: timeout {timeout} s, '
                                    f'expected {expected_rate} Hz (steady clock)')
 
@@ -152,19 +166,14 @@ class SensorMonitorNode(Node):
         self.last_scan_outage_end = None      # steady time of the last scan LOST -> OK
 
         self.map_to_odom = None               # (x, y, yaw) of the last update
-        self.base_pose = None                 # (x, y) of the EKF in odom
-        self.last_shift = 0.0                 # shift of the corrected position at the last update
+        self.last_valid_map_to_odom = None    # the last update before the alarm (for recovery)
         self.last_heading_change = 0.0
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.valid_publisher = self.create_publisher(Bool, '/correction_valid', latched)
         self.valid_publisher.publish(Bool(data=True))
         self.create_subscription(TFMessage, '/tf', self.on_tf, 100)
-        self.create_subscription(Odometry, '/odometry/filtered', self.on_base_pose, 10)
         self.create_service(Trigger, '~/reset_correction_check', self.on_reset_request)
-
-    def on_base_pose(self, msg):
-        self.base_pose = (msg.pose.pose.position.x, msg.pose.pose.position.y)
 
     def on_tf(self, msg):
         for transform in msg.transforms:
@@ -176,29 +185,24 @@ class SensorMonitorNode(Node):
         x, y = transform.transform.translation.x, transform.transform.translation.y
         yaw = yaw_from_quaternion(transform.transform.rotation)
 
-        if self.map_to_odom is not None and self.base_pose is not None:
-            # How far this update moves the corrected position of the robot (reported only).
-            old_x, old_y, old_yaw = self.map_to_odom
-            bx, by = self.base_pose
-            old = (old_x + math.cos(old_yaw) * bx - math.sin(old_yaw) * by,
-                   old_y + math.sin(old_yaw) * bx + math.cos(old_yaw) * by)
-            new = (x + math.cos(yaw) * bx - math.sin(yaw) * by,
-                   y + math.sin(yaw) * bx + math.cos(yaw) * by)
-            if (x, y, yaw) != self.map_to_odom:
-                self.last_shift = math.dist(old, new)
-                self.last_heading_change = math.degrees(
-                    abs(math.atan2(math.sin(yaw - old_yaw), math.cos(yaw - old_yaw))))
+        previous = self.map_to_odom
+        if previous is not None and (x, y, yaw) != previous:
+            old_yaw = previous[2]
+            self.last_heading_change = math.degrees(
+                abs(math.atan2(math.sin(yaw - old_yaw), math.cos(yaw - old_yaw))))
         self.map_to_odom = (x, y, yaw)
 
+        was_valid = self.correction_check.state != INVALID
         alarm = self.correction_check.add_update(stamp, yaw)
+        if was_valid and alarm is None:
+            self.last_valid_map_to_odom = (x, y, yaw)
         if alarm is not None:
             after_outage = (self.last_scan_outage_end is not None and
                             steady_now() - self.last_scan_outage_end < self.outage_memory)
             self.get_logger().error(
                 f'Correction INVALID at t = {alarm["time"]:.2f} s: map->odom heading changed by '
                 f'{alarm["heading_change_deg"]:.2f} deg in {alarm["dt"]:.1f} s, allowed '
-                f'{alarm["allowed_deg"]:.2f} deg (corrected position moved '
-                f'{self.last_shift:.2f} m); '
+                f'{alarm["allowed_deg"]:.2f} deg; '
                 + ('preceded by a lidar outage' if after_outage else 'no lidar outage before it'))
             self.valid_publisher.publish(Bool(data=False))
             self.publish_diagnostics()
@@ -206,6 +210,7 @@ class SensorMonitorNode(Node):
     def on_reset_request(self, _request, response):
         was_invalid = self.correction_check.state == INVALID
         self.correction_check.reset()
+        self.last_valid_map_to_odom = None
         self.valid_publisher.publish(Bool(data=True))
         self.get_logger().info('Correction consistency reset by the operator'
                                + (' (was INVALID)' if was_invalid else ''))
@@ -222,7 +227,6 @@ class SensorMonitorNode(Node):
         values = [
             KeyValue(key='state', value=check.state),
             KeyValue(key='last_heading_change_deg', value=f'{self.last_heading_change:.3f}'),
-            KeyValue(key='last_position_shift_m', value=f'{self.last_shift:.3f}'),
             KeyValue(key='floor_deg', value=f'{math.degrees(check.floor):.2f}'),
             KeyValue(key='k', value=f'{check.k:.1f}'),
             KeyValue(key='drift_sigma_rad_s', value=f'{check.drift_sigma:.2e}'),
@@ -237,6 +241,10 @@ class SensorMonitorNode(Node):
                                    value=f'{check.alarm["heading_change_deg"]:.2f}'))
             values.append(KeyValue(key='alarm_allowed_deg',
                                    value=f'{check.alarm["allowed_deg"]:.2f}'))
+            if self.last_valid_map_to_odom is not None:
+                for key, value in zip(('x', 'y', 'yaw'), self.last_valid_map_to_odom):
+                    values.append(KeyValue(key=f'last_valid_map_to_odom_{key}',
+                                           value=f'{value:.6f}'))
         else:
             status.level = DiagnosticStatus.OK
             status.message = 'VALID'

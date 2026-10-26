@@ -136,6 +136,7 @@ def launch_setup(context):
         actions.append(Node(
             package='gnssd_tools', executable='scripted_operator_node',
             parameters=[{'use_sim_time': True,
+                         'recovery_mode': LaunchConfiguration('operator_mode').perform(context),
                          'reaction_delay': float(LaunchConfiguration('operator_delay')
                                                  .perform(context))}],
             output='screen'))
@@ -173,6 +174,9 @@ def generate_launch_description():
         DeclareLaunchArgument('operator_recovery', default_value='false',
                               description='Start scripted_operator_node (Step 6 recovery test)'),
         DeclareLaunchArgument('operator_delay', default_value='3.0'),
+        DeclareLaunchArgument('operator_mode', default_value='localization',
+                              description='Recovery of scripted_operator_node: '
+                                          'localization or mapping on the last checkpoint'),
         DeclareLaunchArgument('allow_dirty', default_value='false',
                               description='Record even with uncommitted changes in git'),
         OpaqueFunction(function=launch_setup),
