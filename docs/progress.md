@@ -1482,3 +1482,150 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --all
 Summary: 22 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 6b — EKF process noise, map_manager cost, mapping recovery (2026-10-26)
+
+Commits: code cf48395, fix 38bbfd7 (sensor_monitor "last valid" map->odom). slam_toolbox configs and
+noise models unchanged; slam_toolbox not tuned.
+
+### 1. EKF process noise (ekf.yaml)
+
+How robot_localization uses Q (humble-devel source): `ekf.cpp predict()` does
+`P = J P J^T + delta_sec * Q` -> every diagonal value is a variance PER SECOND. Package defaults
+(`filter_base.cpp reset()`): x 0.05, y 0.05, yaw 0.06, vx 0.025, vy 0.025, vyaw 0.02, ax 0.01,
+ay 0.01 (+ 3D terms). Default yaw 0.06 rad^2/s -> sigma_yaw = sqrt(0.06 * 10) = 0.77 rad = 44 deg after
+10 s: exactly the Step 5c observation. vy is not measured and has Q 0.025 -> sigma_y in kilometres.
+
+Derivation (no tuning on ATE):
+- x, y, yaw: 1e-9 (numerical floor = the package's initial covariance). The pose is the integral of
+  vx, vyaw; it has no noise source of its own.
+- vx, vyaw: q = E[dv^2] / dt of the TRUE velocity over one EKF step (dt = 1/30 s), measured from
+  /odom_raw (zero-order hold on the EKF grid; scratch script, bags of Step 6):
+  ```
+  room_loop s1      /odom_raw vx  : q 1.27e-04 (m/s)^2/s    vyaw: q 2.06e-04 (rad/s)^2/s
+  warehouse_loop s1 /odom_raw vx  : q 3.09e-05             vyaw: q 4.07e-05
+  (/cmd_vel: vx 4.4e-06 / 1.1e-06 - the commanded speed is constant except at start/stop;
+   vyaw 2.6e-04 / 4.4e-05)
+  ```
+  Room = worst case (tightest turns), rounded up: **vx 2e-4, vyaw 3e-4**.
+- vy, ay: 1e-9 - a differential drive has no lateral velocity (no-slip).
+- z, roll, pitch and rates: defaults (fixed by two_d_mode); ax, az: defaults (ax is observable
+  through the vx measurements).
+
+Finding during the smoke test: with Q_vy = Q_ay = 1e-9 the running filter still showed P_vy growing
+~1.5e-4 (m/s)^2 per second and sigma_x 17 m after 5 min (cause not found in predict()/correct() of
+robot_localization; Q verified with `ros2 param get`: 225 values, diagonal as above). Fix: the
+no-slip constraint as a MEASUREMENT - odom0 now also fuses vy (the wheel odometry reports vy = 0 with
+variance 1e-9), as robot_localization's documentation recommends for non-holonomic robots.
+After that, live: t = 60 s sigma_x 0.020 m, sigma_y 0.013 m, sigma_yaw 0.079 deg, P_vy 1.6e-10.
+
+a) Base-layer ATE (/odometry/filtered, no alignment) vs Step 4/4b - unchanged:
+
+| run | Step 4/4b RMSE | Step 6b RMSE / max |
+|---|---|---|
+| room_loop s1 (room_loop_seed1_20261026_093231) | 0.077 m | 0.077 / 0.120 m |
+| room_loop s2 (..._093624) | 0.105 m | 0.105 / 0.184 m |
+| room_loop s3 (..._094015) | 0.071 m | 0.070 / 0.125 m |
+| warehouse_loop s1 (warehouse_loop_seed1_20261026_094405) | 0.367 m | 0.367 / 0.714 m |
+
+b, c) Consistency (`src/gnssd_tools/scripts/ekf_consistency.py`):
+
+| run | inside 2-sigma ellipse (exp. 86.5 %) | inside 95 % ellipse | abs(heading err) < 2 sigma_yaw (exp. 95.4 %) | end: sigma_xy / real | end: sigma_yaw / real heading err |
+|---|---|---|---|---|---|
+| default Q (room_loop s1, Step 6 bag) | 100 % | 100 % | 100 % | 4185 m / 0.038 m | 208 deg / +0.57 deg |
+| room_loop s1 | 22.5 % | 29.3 % | 30.0 % | 0.034 / 0.040 m | 0.146 / +0.596 deg |
+| room_loop s2 | 20.3 % | 23.7 % | 19.5 % | 0.034 / 0.017 m | 0.146 / +0.565 deg |
+| room_loop s3 | 30.4 % | 41.4 % | 9.4 % | 0.034 / 0.114 m | 0.146 / -1.491 deg |
+| warehouse_loop s1 | 3.7 % | 5.0 % | 10.1 % | 0.102 / 0.713 m | 0.296 / +2.162 deg |
+
+Result: from absurdly pessimistic (km, 200 deg) to plausible magnitudes, but OVER-confident (4–30 %
+instead of 86–95 %). Reason: the real heading error is dominated by systematic errors - the gyro
+bias (sigma 1.0e-4 rad/s -> ~1.2 deg after 216 s, ~5 deg after 900 s, observed 0.6–2.2 deg) and the
+wheel scale errors - which white process noise cannot represent (the error grows ~t, white noise
+gives ~sqrt(t)), and robot_localization has no bias state. Reported, not forced (no Q inflation).
+
+d) Step 5c detector, offline on all 10 new bags (`check_corrections.py`, threshold does not use the
+EKF covariance): no false alarm in the 4 normal runs (largest change 0.28–0.40 deg vs allowed
+3.02 deg); every outage run alarms at 405.2 s (24–40 deg > 5.07 deg).
+
+### 2. map_manager / sensor_monitor CPU
+
+- map_manager_node: no permanent /tf and /odometry/filtered subscriptions. At a switch with
+  use_base_pose it reads one message of each (temporary subscription, 2 s timeout). While the
+  correction is INVALID, the reference map->odom is the last VALID one, published by sensor_monitor in
+  its diagnostics (`last_valid_map_to_odom_x/_y/_yaw`).
+- sensor_monitor_node: /odom, /imu, /scan subscribed raw (only the arrival time is used, nothing
+  deserialized); /odometry/filtered dropped (it fed only the informational position shift).
+
+| node | Step 6 runs, CPU 1-core mean / RSS | Step 6b runs (resource_logger) |
+|---|---|---|
+| map_manager_node | 20.1–22.2 %, 63 MiB | **1.0–1.2 %** (max 3–4 %, 46 % for one sample at a switch), 46 MiB |
+| sensor_monitor_node | 23.3–24.6 %, 64 MiB | **18.8–20.5 %**, 64 MiB |
+
+(Probe without recorder: map_manager 0.7 %, sensor_monitor 13.6 %.) The rest of sensor_monitor is
+Python handling of /tf (93 Hz), needed for map->odom.
+
+Bug found in the first recovery series (cf48395): sensor_monitor stored a map->odom as "last valid"
+whenever the check returned no alarm. After the outage slam_toolbox first re-published the OLD value
+with the new stamp 405.2, then the wrong 39 deg value with the SAME stamp 405.2; the check skips an
+already seen stamp as a re-send (alarm 0.1 s later at 405.3), but the node stored the skipped wrong
+value. All 6 recovery runs started with initial heading errors of 23–40 deg -> discarded. Fix
+38bbfd7: store only what the check ACCEPTED (its newest accepted entry). Replay of the bags: last
+valid = the pre-outage value (-1.0 / 1.6 deg). (The check's re-send rule delays this alarm by one
+TF period, 0.1 s; detector unchanged.)
+
+### 3. Recovery by continuing mapping from the checkpoint
+
+`~/set_mode(mapping, map_name)`: slam_mapping.launch.py with map_file + x/y/yaw -> async_slam_toolbox
+reads map_file_name + map_start_pose at start-up = deserialize with START_AT_GIVEN_POSE
+(DeserializePoseGraph.srv 2.6.10: UNSET 0, START_AT_FIRST_NODE 1, START_AT_GIVEN_POSE 2,
+LOCALIZE_AT_POSE 3); new scans extend the old graph. Scripted operator `operator_mode:=mapping`.
+
+warehouse, outage 285–405 s, checkpoint on, operator 3 s after INVALID, commit 38bbfd7 (bags
+warehouse_recovery_{map,loc}_seed{1,2,3}_20261026_1156..1313). Errors from the switch to the end:
+
+| seed | variant | initial pose error | RMSE / max after switch | < 0.1 m for 5 s after | heading after switch |
+|---|---|---|---|---|---|
+| 1 | mapping | 0.240 m, +0.50 deg | 0.918 / 1.896 m | 342.0 s | +3.9 ... +4.5 deg |
+| 1 | localization | 0.263 m, +0.48 deg | 0.520 / 0.997 m | 335.8 s | +1.9 ... +2.6 deg |
+| 2 | mapping | 0.437 m, +0.01 deg | **0.089 / 0.419 m** | **12.1 s** | -0.4 ... +0.1 deg |
+| 2 | localization | 0.443 m, -0.18 deg | 1.478 / 3.239 m | 388.4 s | -7.9 ... -8.2 deg |
+| 3 | mapping | 0.243 m, -0.98 deg | 0.544 / 1.081 m | 325.1 s | +2.1 ... +2.7 deg |
+| 3 | localization | 0.217 m, -0.79 deg | 0.668 / 1.324 m | 335.9 s | +2.7 ... +3.1 deg |
+| mean | mapping / localization | | 0.517 / 0.889 m | 226 / 353 s | |
+
+(Step 6 C, localization, seed 1, old EKF Q: 0.82 m RMSE after 405 s, 341 s.) Second INVALID after
+the switch: map s1 at 410.3 s (7.1 deg update right after the start), loc s2 at 743.95 s (the
+snap-back, see 4).
+
+Finding: the initial pose is good in every run (0.22–0.44 m, < 1 deg), yet in 5 of 6 runs the first
+matches after the switch settle on a heading 2–8 deg off - the robot is 3.6–11 m away from anything
+in the checkpoint (that area was driven during the outage). Localization then holds the offset
+until the robot returns to the pre-outage area (~745 s). Mapping extends the graph with the offset:
+when the first matches are right (seed 2) it converges in 12 s and the map stays clean; when they are
+off (seeds 1, 3) the part mapped after the switch is a slightly ROTATED copy (2–4 deg, visible as
+doubled rack edges / top and left walls in results/step6b/*map_seed{1,3}*_map.png) until the loop
+closure at the end pulls most of it back. Mapping is better in 2 of 3 seeds (mean RMSE 0.52 vs
+0.89 m) but not reliably; neither variant can fix the heading before the robot re-enters mapped area.
+
+### 4. Consistency check after a mode switch (document only, detector unchanged)
+
+The check tests only the SIZE of a heading change of map->odom against what base-layer drift can
+explain (floor + k * sigma_drift * dt); it has no reference for which heading is RIGHT. A correct
+large correction (e.g. the 3.4 deg snap-back at 745 s in Step 6 C, or loc s2 here at 743.95 s) and a
+wrong one look the same. This happens when the estimate was wrong for a while and is then corrected
+at once: after a switch with an uncertain initial pose, and when localization or a continued map
+operated outside the mapped area and re-enters it (loop closure / relocalization). A latched INVALID
+there is a false alarm in effect; it needs an operator decision (or ground truth, which the system
+does not have).
+
+```
+$ colcon build --symlink-install
+Summary: 4 packages finished
+$ ament_flake8 src/gnssd_tools
+32 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --all
+Summary: 23 tests, 0 errors, 0 failures, 0 skipped
+```
