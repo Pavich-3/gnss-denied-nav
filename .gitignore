@@ -11,8 +11,10 @@ bags/
 # run.launch.py clean-tree guard pass after a map was saved
 maps/
 
-# evo / evaluation output
-results/
+# evo / evaluation output: intermediate files stay local, the final
+# Step 7 tables and figures (results/final/) are committed
+results/*
+!results/final/
 *.zip
 
 # python

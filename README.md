@@ -54,7 +54,8 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/gnssd_tools/node_runner.py`: common start/clean-shutdown of all own nodes.
 - `src/gnssd_tools/gnssd_tools/geometry.py`: small 2D helpers (yaw from quaternion, angle wrapping).
 - `src/gnssd_tools/scripts/compare_odom.py`: plots `/odom` vs `/odom_raw` from a bag and reports the drift.
-- `src/gnssd_tools/scripts/run_batch.sh`: runs one scenario for a range of seeds and writes bags/index.csv.
+- `src/gnssd_tools/scripts/run_batch.sh`: runs one scenario for a range of seeds and writes bags/index.csv; skips runs already complete at the current commit.
+- `src/gnssd_tools/scripts/run_final_series.sh`: the whole Step 7 series (all scenarios and seeds), resumable, keeps the laptop awake.
 - `src/gnssd_tools/scripts/check_corrections.py`: replays the correction consistency check on recorded bags (offline validation).
 - `src/gnssd_tools/scripts/dropout_analysis.py`: errors before/during/after a lidar dropout, re-convergence time, plot.
 - `src/gnssd_tools/scripts/error_vs_distance.py`: position error vs distance from the start and vs travelled distance (TUM inputs).

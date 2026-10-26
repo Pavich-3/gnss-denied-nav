@@ -1629,3 +1629,40 @@ No problems found
 $ colcon test --packages-select gnssd_tools && colcon test-result --all
 Summary: 23 tests, 0 errors, 0 failures, 0 skipped
 ```
+
+## Step 7 — Final experiment series (2026-10-26)
+
+### 0. Freeze, estimate, resumable runner
+
+System and stand as of Step 6b (38bbfd7 + this commit: only run_batch.sh resumable,
+run_final_series.sh, .gitignore for results/final, README). Tag `experiments-v1` = the commit the
+series runs at; every bag's run_info.yaml records it (clean-tree guard of run.launch.py).
+
+Estimate from the existing bags (cycle = start-to-start incl. start-up/shutdown; size = mean bag):
+room 2 laps: run 221–230 s, cycle 231–233 s, 117 MB (31–32 MB/min); room_long 10 laps: 1087 s,
+530 MB (29 MB/min); warehouse 1 lap: 901–927 s, cycle 926 s, 497–530 MB (33–35 MB/min).
+
+| scenario | N | cycle | wall time | disk |
+|---|---|---|---|---|
+| room_loop (2 laps; seed 1 saves final_room_s1) | 15 | 233 s | 0.97 h | 1.8 GB |
+| warehouse_loop (1 lap; seed 1 saves final_wh_s1) | 15 | 926 s | 3.86 h | 7.8 GB |
+| room_long (10 laps) | 5 | ~1100 s | 1.53 h | 2.7 GB |
+| room_dropout ([[140,200]], 60 s in lap 2) | 10 | 233 s | 0.65 h | 1.2 GB |
+| warehouse_dropout ([[285,405]], checkpoint on, no operator) | 10 | 930 s | 2.58 h | 5.3 GB |
+| warehouse_recovery (checkpoint, operator_mode mapping) | 5 | 930 s | 1.29 h | 2.6 GB |
+| room_loc (final_room_s1, origin) | 5 | 233 s | 0.32 h | 0.6 GB |
+| warehouse_loc (final_wh_s1, origin) | 5 | 926 s | 1.29 h | 2.7 GB |
+| **total** | **70** | | **~12.5 h** | **~24.5 GB** |
+
+Below the 16 h limit: no cuts. Disk: 25 GB free before the series (old bags of Steps 2–6b: 17 GB).
+
+run_batch.sh is resumable: a seed is skipped when bags/index.csv has a row with the same scenario,
+laps, seed, extra args and the current commit and the bag has metadata.yaml (written by rosbag2 only
+on a proper close) and run_info.yaml. Checked on existing rows:
+```
+same scenario/seed/args/commit -> [warehouse_recovery_map_seed2_20261026_122719]  (skipped)
+different extra args           -> []   (run)
+room_loop seed 3 / seed 4      -> [room_loop_seed3_20261026_094015] / []
+```
+run_final_series.sh runs all 70 under `systemd-inhibit --what=sleep:idle:handle-lid-switch`, map runs
+before the localization runs (checks that the map files exist), stops at the first failed run.
