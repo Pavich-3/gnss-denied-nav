@@ -192,9 +192,15 @@ class SensorMonitorNode(Node):
                 abs(math.atan2(math.sin(yaw - old_yaw), math.cos(yaw - old_yaw))))
         self.map_to_odom = (x, y, yaw)
 
-        was_valid = self.correction_check.state != INVALID
         alarm = self.correction_check.add_update(stamp, yaw)
-        if was_valid and alarm is None:
+        # Remember this map -> odom as "last valid" only if the check really
+        # ACCEPTED it (it is then its newest accepted state). add_update() also
+        # returns None for an update it ignores: slam_toolbox can re-send a NEW
+        # value under an already seen stamp - after the Step 6b outage the wrong
+        # 39 deg correction came with the stamp of the update before it, was
+        # skipped as a re-send and caught 0.1 s later (next stamp).
+        accepted = self.correction_check.accepted
+        if alarm is None and accepted and accepted[-1] == (stamp, yaw):
             self.last_valid_map_to_odom = (x, y, yaw)
         if alarm is not None:
             after_outage = (self.last_scan_outage_end is not None and
