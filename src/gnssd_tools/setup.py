@@ -30,6 +30,7 @@ setup(
             'node_census_node = gnssd_tools.node_census_node:main',
             'map_manager_node = gnssd_tools.map_manager_node:main',
             'scripted_operator_node = gnssd_tools.scripted_operator_node:main',
+            'nav2_goal_sender_node = gnssd_tools.nav2_goal_sender_node:main',
         ],
     },
 )

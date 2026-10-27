@@ -1,0 +1,13 @@
+# Step 8 (NFR-9): Nav2 goals in room.sdf for nav2_goal_sender_node (stand), map frame.
+# Room interior x -1.425..8.425, y -1.425..6.425; island x 1.5..5.5, y 1.7..3.3;
+# pillar (7.0, 5.0) r 0.2; wall stub x 4.5, y 5.0..6.5; box near (0, 5).
+nav2_goal_sender_node:
+  ros__parameters:
+    # x, y, yaw (rad), one goal after another
+    goals: [7.8, 5.8, 1.5708,     # far corner: 0.6 m from both walls, 1.1 m from the pillar
+            3.5, 4.4, 3.1416,     # behind the island (seen from the start), facing west
+            0.0, 0.0, 0.0]        # back to the start
+    goal_names: ['far corner', 'behind the island', 'back to start']
+    goal_timeout: 300.0           # s (simulation time) per goal
+    start_delay: 20.0             # s before the first goal: costmaps fill, localization settles
+    screenshot_delay: 10.0        # s after a goal is accepted: the global path is in RViz

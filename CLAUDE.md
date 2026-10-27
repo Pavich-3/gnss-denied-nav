@@ -117,6 +117,13 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - `~/.bashrc` sources `/opt/ros/humble` and also the user's other workspace
   `~/ros2_ws/install` (unrelated packages). No Noetic paths are present.
 
+## Nav2 (Step 8, external consumer)
+- Nav2 is NOT part of the system: `nav2_demo.launch.py` starts nav2_bringup's
+  navigation_launch.py only (no amcl, no map_server) with config/nav2_params.yaml.
+- Nav2 consumes the system outputs unchanged: /map, TF map -> odom (slam_toolbox),
+  TF odom -> base_link and /odometry/filtered (EKF), /scan; it publishes /cmd_vel.
+- Never point Nav2 at /odom: here that is the stand's noisy wheel odometry.
+
 ## System vs stand
 - SYSTEM (what would run on the real robot; measured by resource_logger):
   ekf_filter_node, slam_toolbox (async_slam_toolbox_node or
@@ -124,7 +131,8 @@ Evaluation: rosbag2 + evo. Nav2 is an external consumer, not part of the system.
 - STAND (simulation and evaluation only): gz sim, parameter_bridge,
   odom_noise_node, imu_covariance_node, scan_gate_node, route_driver_node,
   recorder, run_info_writer_node, loop_closure_monitor_node,
-  resource_logger_node, node_census_node, scripted_operator_node, RViz.
+  resource_logger_node, node_census_node, scripted_operator_node,
+  nav2_goal_sender_node, RViz.
 - Every own node starts through gnssd_tools/node_runner.py (rclpy SIGINT
   handler off -> clean shutdown, no Traceback).
 

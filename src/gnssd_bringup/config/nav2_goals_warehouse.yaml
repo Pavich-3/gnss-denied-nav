@@ -1,0 +1,12 @@
+# Step 8 (NFR-9): Nav2 goals in warehouse.sdf for nav2_goal_sender_node (stand), map frame.
+# Racks: row A y 1.5..2.7, B 5.1..6.3, C 8.7..9.9, D 12.3..13.5 (x 3..24, cross aisle
+# x 12.4..14.6); the long repetitive aisle is y 6.3..8.7; office x >= 23.6, y >= 16.
+nav2_goal_sender_node:
+  ros__parameters:
+    goals: [8.0, 7.5, 0.0,        # inside the long aisle between rows B and C
+            26.0, 14.8, 1.5708,   # far side: 29.9 m from the start
+            0.0, 0.0, 0.0]        # back to the start
+    goal_names: ['inside the aisle', 'far side', 'back to start']
+    goal_timeout: 600.0           # s (simulation time) per goal
+    start_delay: 20.0
+    screenshot_delay: 10.0
