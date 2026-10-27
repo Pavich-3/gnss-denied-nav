@@ -75,7 +75,7 @@ def save(figure, name, keep_x=False):
                 axis.set_major_formatter(FuncFormatter(decimal_comma))
     FIG.mkdir(parents=True, exist_ok=True)
     figure.savefig(FIG / f'{name}.png', dpi=300)
-    figure.savefig(FIG / f'{name}.pdf')
+    figure.savefig(FIG / f'{name}.pdf', metadata={'CreationDate': None})  # reproducible file
     plt.close(figure)
     print(f'{name}: png + pdf')
 
@@ -88,7 +88,8 @@ def load_runs():
         by[r['scenario']].append(r)
     for s in by:
         by[s].sort(key=lambda r: int(r['seed']))
-    return rows, by
+    # Figures 9 and 10 use the main series only (not the speed runs of experiments-v1.1).
+    return [r for r in rows if r['scenario'] in SCENARIO_LABEL], by
 
 
 def extract(row):
@@ -356,6 +357,32 @@ def fig10(rows):
     save(figure, 'fig10_gyro_bias')
 
 
+def fig11(by):
+    slow = {r['seed']: r for r in by['room_loop']}
+    fast = {r['seed']: r for r in by['room_loop_fast']}
+    seeds = sorted(set(fast), key=int)
+    if not seeds:
+        return
+    figure, axes = plt.subplots(figsize=(8, 4))
+    for k, est in enumerate(('odom', 'base', 'corr')):
+        x = np.array([3 * k, 3 * k + 1])
+        for seed in seeds:
+            pair = [float(slow[seed][f'{est}_ate_rmse']), float(fast[seed][f'{est}_ate_rmse'])]
+            axes.plot(x, pair, color=COLOR[est], marker='o', markersize=4, linewidth=0.9,
+                      alpha=0.85)
+        axes.plot([], [], color=COLOR[est], marker='o', label=LABEL[est])
+    axes.set_xticks([0, 1, 3, 4, 6, 7])
+    axes.set_xticklabels(['0,2 м/с', '0,5 м/с'] * 3)
+    axes.set_yscale('log')
+    ticks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+    axes.set_yticks(ticks)
+    axes.set_yticklabels([decimal_comma(t, None) for t in ticks])
+    axes.yaxis.set_minor_formatter(FuncFormatter(lambda *_: ''))
+    axes.set_ylabel('ATE (RMSE), м')
+    axes.legend(loc='upper right')
+    save(figure, 'fig11_speed_ate', keep_x=True)
+
+
 def main():
     rows, by = load_runs()
     fig01(by)
@@ -368,6 +395,7 @@ def main():
     fig08()
     fig09(rows)
     fig10(rows)
+    fig11(by)
 
 
 if __name__ == '__main__':

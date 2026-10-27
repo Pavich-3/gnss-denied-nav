@@ -1745,3 +1745,44 @@ Summary: 23 tests, 0 errors, 0 failures, 0 skipped
 $ ls results/final/fig | wc -l
 20   (10 figures x PNG + PDF)
 ```
+
+### Addendum: speed experiment (room_loop at 0.5 m/s, seeds 1–5)
+
+Speed is a route parameter only, but recording it in run_info.yaml needed a one-line code change,
+so the runs are at a new tag `experiments-v1.1` (02e0fe3). Changes vs experiments-v1 (stand only,
+system untouched): `config/route_room_fast.yaml` (= route_room.yaml with linear_speed 0.5) and
+run_info_writer_node also records the driver parameters (`route_driver: linear_speed 0.5,
+max_angular_speed 0.6, lookahead_distance 0.5`). Runs: `run_batch.sh room room_loop_fast 2 1 5
+route:=room_fast`; 87.1 s per route, 42.85 m.
+
+Incident: seed 2 was refused by the clean-tree guard because I edited the evaluation scripts during
+the batch (only seed 1 had been recorded). The edits were stashed (copy kept), the batch resumed
+(seed 1 skipped as complete, seeds 2–5 recorded at 02e0fe3), the edits restored (byte-identical).
+
+Scan motion distortion (checked before interpreting anything): gz-sensors 8 `GpuLidarSensor::Update`
+calls `Render()` once per update, the GpuRays pose is set once (`SetLocalPose(this->Pose())`) and the
+whole message gets one stamp (`msgs::Convert(_now)`); the recorded LaserScan has time_increment = 0,
+scan_time = 0. The simulator does NOT produce smeared scans; the thesis must not claim that effect.
+
+Paired comparison (d = 0.5 - 0.2 m/s, n = 5; full tables in results/final/summary.md, fig 11):
+```
+odometry ATE        0.405 -> 0.407 m  d +0.003  t p 0.812
+base ATE            0.074 -> 0.064 m  d -0.009  t p 0.198  (4/5 lower)
+corrected ATE       0.019 -> 0.018 m  d -0.001  t p 0.628
+base heading RMSE   0.550 -> 0.290 deg d -0.260 t p 0.042  (5/5 lower)
+|gyro bias| x T     0.954 -> 0.444 deg d -0.510 t p 0.026  (duration 226 -> 95 s)
+loop closures       1.8 -> 1.8
+scans in the graph  48.4 -> 49.2      (added per 0.5 m travelled, not per time)
+max route deviation 0.107 -> 0.415 m  (turn radius 0.5/0.6 = 0.83 m vs 0.33 m)
+min clearance       0.796 m at both speeds > robot radius 0.211 m -> no collision
+```
+Result: at 0.5 m/s the base-layer heading error halves because the same path takes 42 % of the time,
+so the gyro bias accumulates less (|bias| x T 0.95 -> 0.44 deg); the base ATE drops only slightly and
+not significantly (odometry scale errors are per metre, not per second); the corrected estimate and
+the loop closures do not change. The route differs noticeably in the corners (0.415 m from the
+polyline), so the two speeds do not drive exactly the same path. Lowest RTF of the 0.5 m/s runs
+0.947 (seed 1, recorded while scripts were edited on the same machine).
+
+`final_extract.py` now also stores graph_nodes (vertices of the last
+/slam_toolbox/graph_visualization); re-extracting all 70 experiments-v1 bags changed 0 values in
+runs.csv (only the columns graph_nodes and linear_speed were added).

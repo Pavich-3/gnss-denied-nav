@@ -12,7 +12,8 @@ nodes.csv). Output columns (m, deg, s, %, MiB):
                <e>_ate_rmse, <e>_ate_mean, <e>_ate_max      translation, NOT aligned
                <e>_head_rmse, <e>_head_max                  heading, deg
                <e>_loop_final, <e>_loop_max, <e>_loop_mean  NFR-3 (loop_closure_error.py)
-  slam         loop_closures, alarms (/correction_valid -> false)
+  slam         loop_closures, alarms (/correction_valid -> false), graph_nodes (scans in the graph)
+  route        linear_speed (m/s; from run_info.yaml since experiments-v1.1, else empty)
   NFR-4        base_rate_mean, base_rate_min        /odometry/filtered, 1 s windows while moving
   NFR-5        scan_lat_median, scan_lat_p95, scan_lat_max, scan_lat_growth, scan_coverage
   NFR-6/7      cpu_core_mean, cpu_total_mean, cpu_core_noclock, cpu_total_noclock, rss_peak
@@ -220,7 +221,8 @@ def metrics(npz_path):
            'rtf': info['rtf'], 'gyro_bias': info['gyro_bias'],
            'odom_scale_lin': run['odom_noise']['applied_linear_scale_error'],
            'odom_scale_ang': run['odom_noise']['applied_angular_scale_error'],
-           'loop_closures': loops['loop_closures'],
+           'loop_closures': loops['loop_closures'], 'graph_nodes': info.get('graph_nodes'),
+           'linear_speed': (run.get('route_driver') or {}).get('linear_speed'),
            'alarms': sum(1 for e in events if e['kind'] == 'valid' and not e['value'])}
 
     series = {}

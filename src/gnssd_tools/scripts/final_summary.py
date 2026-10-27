@@ -28,6 +28,8 @@ from pathlib import Path
 
 import numpy as np
 from scipy import stats
+from scipy.spatial import cKDTree
+import yaml
 
 REPO = Path(__file__).resolve().parents[3]
 RUNS_CSV = REPO / 'results' / 'final' / 'runs.csv'
@@ -45,6 +47,11 @@ NFR6_CPU = 80.0      # %
 NFR7_RAM = 400.0     # MiB
 BIAS_MODEL = 1.0e-4  # rad/s, robot_params.xacro (bias_stddev)
 DRIFT_MODEL = 1.0e-5  # rad/s, stationary in-run drift (dynamic bias)
+# Radius of the circle around base_link that contains the whole robot (robot_params.xacro:
+# chassis 0.28 x 0.22 m shifted -0.04 m -> rear corners at (-0.18, +-0.11) m, 0.211 m away;
+# wheels reach |y| = 0.1425 m). A clearance above it rules a collision out.
+ROBOT_RADIUS = 0.211  # m
+SPEED_SLOW, SPEED_FAST = 'room_loop', 'room_loop_fast'
 
 
 def number(value):
@@ -55,12 +62,13 @@ def number(value):
 
 
 def load_runs():
+    """Return the rows of the main series and all rows by scenario (incl. the speed runs)."""
     with open(RUNS_CSV) as f:
         rows = list(csv.DictReader(f))
     by_scenario = defaultdict(list)
     for row in rows:
         by_scenario[row['scenario']].append(row)
-    return rows, by_scenario
+    return [r for r in rows if r['scenario'] in SCENARIOS], by_scenario
 
 
 def values(rows, key):
@@ -431,6 +439,115 @@ def section_distance(by):
     return out
 
 
+def route_polyline():
+    """Return the closed route of route_room.yaml (same in route_room_fast.yaml), (N, 2)."""
+    config = yaml.safe_load((REPO / 'src' / 'gnssd_bringup' / 'config' / 'route_room.yaml')
+                            .read_text())
+    points = np.array(config['route_driver_node']['ros__parameters']['waypoints']).reshape(-1, 2)
+    return np.vstack([points, points[:1]])
+
+
+def distance_to_polyline(xy, polyline):
+    """Distance of every point of xy (N, 2) to the polyline (M, 2)."""
+    best = np.full(len(xy), np.inf)
+    for a, b in zip(polyline[:-1], polyline[1:]):
+        ab = b - a
+        u = np.clip(((xy - a) @ ab) / (ab @ ab), 0.0, 1.0)
+        best = np.minimum(best, np.hypot(*(xy - (a + u[:, None] * ab)).T))
+    return best
+
+
+def occupied_cells(name='final_room_s1'):
+    """World (x, y) of the occupied cells of a saved map (trinary pgm: 0 = occupied)."""
+    meta = yaml.safe_load((REPO / 'maps' / f'{name}.yaml').read_text())
+    import matplotlib.pyplot as plt  # only needed here (reads the pgm)
+    image = plt.imread(REPO / 'maps' / meta['image'])
+    rows, cols = np.nonzero(image < 100)
+    r = meta['resolution']
+    x0, y0 = meta['origin'][:2]
+    return np.column_stack([x0 + (cols + 0.5) * r, y0 + (image.shape[0] - rows - 0.5) * r])
+
+
+def section_speed(by):
+    """Paired comparison of room_loop at 0.2 m/s (experiments-v1) and 0.5 m/s (v1.1)."""
+    slow = {r['seed']: r for r in by[SPEED_SLOW]}
+    fast = {r['seed']: r for r in by[SPEED_FAST]}
+    seeds = sorted(set(fast), key=int)
+    if not seeds:
+        return []
+    polyline = route_polyline()
+    walls = cKDTree(occupied_cells())
+    geometry = {}
+    for label, runs in (('0.2', slow), ('0.5', fast)):
+        for seed in seeds:
+            gt = np.load(EXTRACTS / f'{runs[seed]["bag"]}.npz')['gt'][:, 1:3]
+            geometry[(label, seed)] = (distance_to_polyline(gt, polyline).max(),
+                                       walls.query(gt)[0].min())
+
+    def drift(row):
+        return math.degrees(abs(float(row['gyro_bias'])) * float(row['duration_s']))
+
+    metrics = [('odometry ATE, m', lambda r: float(r['odom_ate_rmse'])),
+               ('base ATE, m', lambda r: float(r['base_ate_rmse'])),
+               ('corrected ATE, m', lambda r: float(r['corr_ate_rmse'])),
+               ('base heading RMSE, deg', lambda r: float(r['base_head_rmse'])),
+               ('corrected heading RMSE, deg', lambda r: float(r['corr_head_rmse'])),
+               ('|gyro bias| x duration, deg', drift),
+               ('duration, s', lambda r: float(r['duration_s'])),
+               ('loop closures', lambda r: float(r['loop_closures'])),
+               ('scans in the graph', lambda r: float(r['graph_nodes']))]
+    body = []
+    for name, get in metrics:
+        a = np.array([get(slow[s]) for s in seeds])
+        b = np.array([get(fast[s]) for s in seeds])
+        d = b - a
+        t_p = stats.ttest_rel(b, a).pvalue if np.any(d != 0) else float('nan')
+        w_p = stats.wilcoxon(b, a).pvalue if np.any(d != 0) else float('nan')
+        body.append([name, f'{a.mean():.3f}', f'{b.mean():.3f}', f'{d.mean():+.3f}',
+                     pvalue(t_p), pvalue(w_p), f'{int(np.sum(d < 0))}/{len(d)}'])
+    per_seed = []
+    for s in seeds:
+        per_seed.append([s] + [f'{float(slow[s][k]):.3f} / {float(fast[s][k]):.3f}'
+                               for k in ('odom_ate_rmse', 'base_ate_rmse', 'corr_ate_rmse')]
+                        + [f'{drift(slow[s]):.2f} / {drift(fast[s]):.2f}',
+                           f'{geometry[("0.2", s)][0]:.3f} / {geometry[("0.5", s)][0]:.3f}',
+                           f'{geometry[("0.2", s)][1]:.3f} / {geometry[("0.5", s)][1]:.3f}'])
+    clearance_fast = min(geometry[('0.5', s)][1] for s in seeds)
+    deviation_fast = max(geometry[('0.5', s)][0] for s in seeds)
+    deviation_slow = max(geometry[('0.2', s)][0] for s in seeds)
+    return ['## Speed experiment: room_loop at 0.2 vs 0.5 m/s (seeds 1–5, paired)', '',
+            '0.2 m/s: the room_loop runs of experiments-v1; 0.5 m/s: room_loop_fast, tag '
+            'experiments-v1.1 (route_room_fast.yaml = route_room.yaml with linear_speed 0.5; '
+            'run_info.yaml records the driver parameters). Same seed = same noise draw (gyro '
+            'bias, odometry scale errors). d = 0.5 m/s - 0.2 m/s; n = 5, so the exact Wilcoxon '
+            'p cannot go below 0.0625.', '',
+            table(['metric', '0.2 m/s (mean)', '0.5 m/s (mean)', 'mean d', 'paired t-test p',
+                   'Wilcoxon p', 'runs with d < 0'], body), '',
+            table(['seed', 'odometry ATE 0.2 / 0.5', 'base ATE 0.2 / 0.5',
+                   'corrected ATE 0.2 / 0.5', '|bias| x T, deg', 'max route deviation, m',
+                   'min clearance to walls, m'], per_seed), '',
+            f'Route: largest distance from the route polyline {deviation_slow:.3f} m at 0.2 m/s, '
+            f'{deviation_fast:.3f} m at 0.5 m/s (the 0.6 rad/s turn-rate limit gives a turn '
+            f'radius of 0.5 / 0.6 = 0.83 m instead of 0.33 m, so the corners are cut wider). '
+            f'Collision: smallest distance from base_link to an occupied cell of final_room_s1 '
+            f'{clearance_fast:.3f} m at 0.5 m/s, robot radius {ROBOT_RADIUS} m -> '
+            + ('no contact possible.' if clearance_fast > ROBOT_RADIUS else
+               'a contact is POSSIBLE (clearance below the robot radius); check the run.'),
+            '',
+            'Scan motion distortion: NOT simulated. gz-sensors 8 GpuLidarSensor renders the whole '
+            'scan in one Render() per update from one sensor pose and puts one stamp on it (no '
+            'per-ray pose or time offset); the recorded LaserScan has time_increment = 0 and '
+            'scan_time = 0. Any difference at 0.5 m/s therefore comes from the shorter drive time '
+            '(less gyro drift accumulates) and the wider turns, not from smeared scans; a real '
+            'rotating lidar would add that effect. The pose graph gets about the same number of '
+            'scans at both speeds: slam_toolbox adds a scan per minimum_travel_distance (0.5 m), '
+            'not per time; only the raw scans per metre drop (10 Hz: 50 per m at 0.2 m/s, 20 at '
+            '0.5 m/s).', '',
+            'Lowest RTF of the 0.5 m/s runs: '
+            f'{min(float(fast[s]["rtf"]) for s in seeds):.3f} (seed 1, recorded while analysis '
+            'scripts were being edited on the same machine).']
+
+
 def section_verdicts(nfr1, nfr2, nfr3, nfr4, nfr5, nfr67, nfr8):
     shares1, shares3 = nfr1, nfr3
     mapping = [s for s in SCENARIOS]
@@ -491,6 +608,8 @@ FIGURES = [
      'localization series).'),
     ('fig09_resources', 'CPU (% of one core and % of 8 cores) and peak RSS per system process.'),
     ('fig10_gyro_bias', 'Histogram of the per-seed gyro bias estimates vs the model N(0, 1e-4).'),
+    ('fig11_speed_ate', 'Speed experiment: ATE of the three estimates at 0.2 and 0.5 m/s, '
+     'room_loop seeds 1–5, lines join the same seed.'),
 ]
 
 
@@ -516,6 +635,7 @@ def main():
         parts += text + ['']
     bias_text, _ = section_bias(rows)
     parts += bias_text + [''] + section_consistency(by) + [''] + section_distance(by) + ['']
+    parts += section_speed(by) + ['']
     parts += ['## Figures (results/final/fig/, PNG 300 dpi + PDF)', '']
     parts += [f'- `{name}`: {text}' for name, text in FIGURES]
     OUT.write_text('\n'.join(parts) + '\n')

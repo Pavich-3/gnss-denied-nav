@@ -15,7 +15,9 @@ script reads each bag once and writes a compact copy:
       scan      t_stamp, t_received_sim      /scan header stamp, receive time as sim time
       m2o       t_stamp, t_received_sim      every NEW map -> odom stamp and when it arrived
   results/final_work/runs/<bag>.json   scalars and events
-      gyro_bias (rad/s), rtf, events of /diagnostics, /correction_valid, /map_manager/events
+      gyro_bias (rad/s), rtf, events of /diagnostics, /correction_valid, /map_manager/events,
+      graph_nodes: vertices (= scans added to the pose graph) in the last
+      /slam_toolbox/graph_visualization message (one sphere per vertex, namespace slam_toolbox)
 
 The corrected estimate is map -> odom composed with odom -> base_link, evaluated
 at the stamps of odom -> base_link, with the rules of tf_to_tum.py: the latest
@@ -54,7 +56,8 @@ OUT = REPO / 'results' / 'final_work' / 'runs'
 MAX_INTERPOLATION_GAP = 1.0  # s, as in tf_to_tum.py
 
 TOPICS = ('/ground_truth', '/odom', '/odometry/filtered', '/tf', '/imu_raw', '/scan',
-          '/diagnostics', '/correction_valid', '/map_manager/events')
+          '/diagnostics', '/correction_valid', '/map_manager/events',
+          '/slam_toolbox/graph_visualization')
 
 
 def stamp(header):
@@ -129,6 +132,7 @@ def extract(bag_name):
     m2o_new = []                 # (stamp, receive time) of every new map -> odom stamp
     seen_m2o = set()
     raw_events = []              # (receive time, kind, data)
+    graph_nodes = None           # vertices in the last graph message
     with AnyReader([bag], default_typestore=get_typestore(Stores.ROS2_HUMBLE)) as reader:
         connections = [c for c in reader.connections if c.topic in TOPICS]
         for connection, recv_ns, raw in reader.messages(connections=connections):
@@ -167,6 +171,9 @@ def extract(bag_name):
                     if status.name.startswith('sensor_monitor'):
                         raw_events.append((recv, 'diag', [status.name, int(status.level),
                                                           status.message]))
+            elif topic == '/slam_toolbox/graph_visualization':
+                graph_nodes = sum(1 for marker in msg.markers
+                                  if marker.ns == 'slam_toolbox' and marker.action == 0)
             elif topic == '/correction_valid':
                 raw_events.append((recv, 'valid', bool(msg.data)))
             else:
@@ -208,7 +215,7 @@ def extract(bag_name):
              if len(m2o) else np.zeros((0, 2))))
     rtf = (base[-1, 0] - base[0, 0]) / (base_recv[-1] - base_recv[0])
     info = {'bag': bag_name, 'gyro_bias': gyro_bias(np.array(sorted(gyro)), gt),
-            'rtf': float(rtf), 'events': events}
+            'rtf': float(rtf), 'graph_nodes': graph_nodes, 'events': events}
     out_json.write_text(json.dumps(info, indent=1))
     return f'{bag_name}: {len(gt)} gt, {len(base)} base, {len(corr)} corrected, ' \
            f'{len(events)} events, rtf {rtf:.3f}'

@@ -250,6 +250,36 @@ Over-confident in every run: the real heading error is dominated by the gyro bia
 
 Curves (also vs distance from the start): fig 4.
 
+## Speed experiment: room_loop at 0.2 vs 0.5 m/s (seeds 1–5, paired)
+
+0.2 m/s: the room_loop runs of experiments-v1; 0.5 m/s: room_loop_fast, tag experiments-v1.1 (route_room_fast.yaml = route_room.yaml with linear_speed 0.5; run_info.yaml records the driver parameters). Same seed = same noise draw (gyro bias, odometry scale errors). d = 0.5 m/s - 0.2 m/s; n = 5, so the exact Wilcoxon p cannot go below 0.0625.
+
+| metric | 0.2 m/s (mean) | 0.5 m/s (mean) | mean d | paired t-test p | Wilcoxon p | runs with d < 0 |
+|---|---|---|---|---|---|---|
+| odometry ATE, m | 0.405 | 0.407 | +0.003 | 0.812 | 0.625 | 1/5 |
+| base ATE, m | 0.074 | 0.064 | -0.009 | 0.198 | 0.312 | 4/5 |
+| corrected ATE, m | 0.019 | 0.018 | -0.001 | 0.628 | 0.625 | 3/5 |
+| base heading RMSE, deg | 0.550 | 0.290 | -0.260 | 0.0418 | 0.0625 | 5/5 |
+| corrected heading RMSE, deg | 0.228 | 0.279 | +0.050 | 0.304 | 0.312 | 1/5 |
+| |gyro bias| x duration, deg | 0.954 | 0.444 | -0.510 | 0.0264 | 0.0625 | 5/5 |
+| duration, s | 226.139 | 94.763 | -131.376 | 9.02e-08 | 0.0625 | 5/5 |
+| loop closures | 1.800 | 1.800 | +0.000 | 1 | 1 | 2/5 |
+| scans in the graph | 48.400 | 49.200 | +0.800 | 0.242 | 0.5 | 0/5 |
+
+| seed | odometry ATE 0.2 / 0.5 | base ATE 0.2 / 0.5 | corrected ATE 0.2 / 0.5 | |bias| x T, deg | max route deviation, m | min clearance to walls, m |
+|---|---|---|---|---|---|---|
+| 1 | 0.491 / 0.506 | 0.076 / 0.075 | 0.016 / 0.024 | 0.54 / 0.23 | 0.107 / 0.415 | 0.796 / 0.796 |
+| 2 | 0.600 / 0.607 | 0.106 / 0.109 | 0.013 / 0.015 | 0.58 / 0.38 | 0.107 / 0.415 | 0.796 / 0.797 |
+| 3 | 0.248 / 0.212 | 0.070 / 0.049 | 0.016 / 0.014 | 1.56 / 0.67 | 0.107 / 0.415 | 0.796 / 0.796 |
+| 4 | 0.480 / 0.505 | 0.076 / 0.050 | 0.028 / 0.020 | 1.52 / 0.66 | 0.107 / 0.415 | 0.796 / 0.797 |
+| 5 | 0.205 / 0.208 | 0.040 / 0.038 | 0.023 / 0.018 | 0.57 / 0.27 | 0.107 / 0.415 | 0.796 / 0.797 |
+
+Route: largest distance from the route polyline 0.107 m at 0.2 m/s, 0.415 m at 0.5 m/s (the 0.6 rad/s turn-rate limit gives a turn radius of 0.5 / 0.6 = 0.83 m instead of 0.33 m, so the corners are cut wider). Collision: smallest distance from base_link to an occupied cell of final_room_s1 0.796 m at 0.5 m/s, robot radius 0.211 m -> no contact possible.
+
+Scan motion distortion: NOT simulated. gz-sensors 8 GpuLidarSensor renders the whole scan in one Render() per update from one sensor pose and puts one stamp on it (no per-ray pose or time offset); the recorded LaserScan has time_increment = 0 and scan_time = 0. Any difference at 0.5 m/s therefore comes from the shorter drive time (less gyro drift accumulates) and the wider turns, not from smeared scans; a real rotating lidar would add that effect. The pose graph gets about the same number of scans at both speeds: slam_toolbox adds a scan per minimum_travel_distance (0.5 m), not per time; only the raw scans per metre drop (10 Hz: 50 per m at 0.2 m/s, 20 at 0.5 m/s).
+
+Lowest RTF of the 0.5 m/s runs: 0.947 (seed 1, recorded while analysis scripts were being edited on the same machine).
+
 ## Figures (results/final/fig/, PNG 300 dpi + PDF)
 
 - `fig01_ate_boxplots`: ATE RMSE of the three estimates per scenario (box plots, all seeds).
@@ -262,3 +292,4 @@ Curves (also vs distance from the start): fig 4.
 - `fig08_maps`: Maps saved by room_loop seed 1 and warehouse_loop seed 1 (source maps of the localization series).
 - `fig09_resources`: CPU (% of one core and % of 8 cores) and peak RSS per system process.
 - `fig10_gyro_bias`: Histogram of the per-seed gyro bias estimates vs the model N(0, 1e-4).
+- `fig11_speed_ate`: Speed experiment: ATE of the three estimates at 0.2 and 0.5 m/s, room_loop seeds 1–5, lines join the same seed.
