@@ -28,6 +28,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_bringup/config/slam_toolbox.yaml`: correction layer (slam_toolbox online async mapping); package defaults + 3 marked changes.
 - `src/gnssd_bringup/config/slam_toolbox_localization.yaml`: slam_toolbox localization mode; package defaults + marked changes.
 - `src/gnssd_bringup/config/map_manager.yaml`: timeouts of map_manager_node (service calls, grid saving, stopping slam_toolbox).
+- `src/gnssd_bringup/config/route_room_fast.yaml`: room loop at 0.5 m/s (speed experiment, experiments-v1.1).
 - `src/gnssd_bringup/config/route_room_east.yaml`: room loop starting at (7, 2) heading north (localization from a non-origin start).
 - `src/gnssd_bringup/config/resource_logger.yaml`: list of system processes whose CPU/RSS is logged.
 - `src/gnssd_bringup/config/sensor_monitor.yaml`: sensors, timeouts and rates watched by sensor_monitor_node.

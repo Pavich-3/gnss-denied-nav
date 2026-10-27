@@ -8,8 +8,9 @@ Started by record.launch.py next to `ros2 bag record`. It writes
   also fixes the Gazebo sensor noise, e.g. the gyro bias);
 * the odometry noise parameters that odom_noise_node ACTUALLY used, including
   the scale errors it drew at start-up (read from the node's parameters);
-* the number of laps of route_driver_node and the lidar dropout windows
-  of scan_gate_node;
+* the number of laps and the driving parameters of route_driver_node
+  (speed, turn-rate limit, look-ahead; added in experiments-v1.1 for the
+  speed experiment) and the lidar dropout windows of scan_gate_node;
 * the git commit of the repository (with "-dirty" if there are uncommitted
   changes), whether that was allowed, and the Gazebo Sim version.
 
@@ -97,7 +98,8 @@ class RunInfoWriterNode(Node):
 
     def write(self):
         noise = self.read_parameters(NOISE_NODE, NOISE_PARAMETERS)
-        driver = self.read_parameters(DRIVER_NODE, ['laps'])
+        driver = self.read_parameters(DRIVER_NODE, ['laps', 'linear_speed', 'max_angular_speed',
+                                                    'lookahead_distance'])
         gate = self.read_parameters(GATE_NODE, ['dropout_windows'])
         map_manager = self.read_parameters(
             MAP_MANAGER_NODE, ['startup_mode', 'startup_map', 'startup_pose',
@@ -109,6 +111,8 @@ class RunInfoWriterNode(Node):
             'seed': self.seed,
             'gz_sim_seed': self.seed,
             'laps': driver['laps'] if driver is not None else 'unavailable',
+            'route_driver': ({k: v for k, v in driver.items() if k != 'laps'}
+                             if driver is not None else 'unavailable'),
             'scan_dropout_windows': (yaml.safe_load(gate['dropout_windows'])
                                      if gate is not None else 'unavailable'),
             'correction_layer': map_manager if map_manager is not None else 'unavailable',
