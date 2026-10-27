@@ -1666,3 +1666,82 @@ room_loop seed 3 / seed 4      -> [room_loop_seed3_20261026_094015] / []
 ```
 run_final_series.sh runs all 70 under `systemd-inhibit --what=sleep:idle:handle-lid-switch`, map runs
 before the localization runs (checks that the map files exist), stops at the first failed run.
+
+### 1. Runs (2026-10-26 14:06 -> 2026-10-27 02:27, 12 h 21 min)
+
+All 70 runs at tag `experiments-v1` (8ddd417): every bag has metadata.yaml and run_info.yaml with
+that commit; no failed run, no abort. Maps final_room_s1 / final_wh_s1 saved by room_loop /
+warehouse_loop seed 1 and used by room_loc / warehouse_loc. Lowest RTF 0.950
+(room_loop_seed2_20261026_141028, while the run was being watched in tmux and a slide deck rendered);
+every other run >= 0.981.
+```
+     15 room_loop      5 room_long     5 room_loc     10 room_dropout
+     15 warehouse_loop 5 warehouse_loc 10 warehouse_dropout 5 warehouse_recovery
+bags 70, problems 0
+```
+
+### 2–5. Evaluation pipeline (scripts only read bags)
+
+- `final_extract.py`: each bag read once (6 processes, 2 min for all 70) into
+  results/final_work/runs/<bag>.npz/.json: ground truth, /odom, /odometry/filtered (+ covariance),
+  corrected map -> base_link, scan and map -> odom stamps, events, gyro bias, RTF. The corrected
+  trajectory is computed in 2D with the rules of tf_to_tum.py; checked against tf_to_tum.py on
+  room_dropout seed 1: max difference 7e-10 m, 8e-8 deg.
+- `final_metrics.py` -> results/final/runs.csv (70 rows). ATE: nearest ground-truth stamp within
+  10 ms, no alignment; checked against `evo_ape bag2` on warehouse_dropout seed 1 (base layer):
+  RMSE 0.3662 vs 0.3657 m, mean 0.3376 vs 0.3370 m, max 0.7175 vs 0.7172 m (association differs).
+- `loop_closure_error.py` (NFR-3): definition in its docstring (revisit = true position within
+  0.10 m of an earlier one >= 30 s before, t1 on the first pass; e = |estimated displacement - true
+  displacement|; e_final at the final return to the start).
+- `final_summary.py` -> results/final/summary.md (all tables, NFR verdicts, statistics),
+  `final_figures.py` -> results/final/fig/ (10 figures, PNG 300 dpi + PDF, Ukrainian labels).
+
+Findings that shaped the metric definitions:
+- slam_toolbox publishes one map -> odom per scan, stamped scan stamp + transform_timeout (0.2 s):
+  2205 new map -> odom stamps for 2206 scans (room_loop s1); all match a scan stamp + 0.2 s. NFR-5
+  is defined on that: latency = receive time of the map -> odom - scan stamp.
+- EKF output stamps are the stamps of the latest fused measurement (10 ms grid: intervals 20/30/40 ms,
+  mean exactly 30.00 Hz); a 1 s window holds 29–31 messages by phase (NFR-4).
+- The gyro bias is drawn from the seed: runs with the same seed share it (e.g. seed 3: -9.47e-5 rad/s
+  in all four warehouse scenarios) -> 15 independent draws, not 70.
+
+### NFR summary (details: results/final/summary.md)
+
+| NFR | threshold | measured | verdict |
+|---|---|---|---|
+| NFR-1 | ATE <= 0.2 m | corrected: 100 % of runs in room_loop, room_long, room_loc, room_dropout, warehouse_loop, warehouse_loc; 10 % warehouse_dropout, 40 % warehouse_recovery. Base layer: room only (warehouse 0–7 %) | met except after a wrong post-outage correction |
+| NFR-2 | corrected < base | paired t-test p < 0.05 and d < 0 in 6/8 scenarios (e.g. room_loop d = -0.050 m [-0.064, -0.036], p = 2.47e-6, Wilcoxon 1.22e-4, 14/15; warehouse_loop d = -0.299 m, p = 2.66e-5, 14/15); warehouse_dropout corrected significantly WORSE (d = +3.344 m, p = 0.0016); warehouse_recovery no significant difference (p = 0.78) | met where SLAM stays correct |
+| NFR-3 | loop error < 0.1 m | corrected e_final < 0.1 m: 100 % in all room scenarios and warehouse_loc, 60 % warehouse_loop (mean 0.093 m), 10 % warehouse_dropout, 40 % recovery; base layer 0–80 % | met where SLAM is correct |
+| NFR-4 | base >= 30 Hz | 30.00 Hz mean in every run, largest stamp gap 60 ms | met |
+| NFR-5 | no scan queue | latency median 39 ms, p95 <= 48 ms, max 104 ms, growth <= +1.7 ms, coverage >= 99.94 % | met |
+| NFR-6 | CPU < 80 % | system, worst run 48.9 % of one core = 6.1 % of 8 cores (without the /clock artifact 37.2 % / 4.66 %) | met |
+| NFR-7 | RAM < 400 MB | peak 216 MiB | met |
+| NFR-8 | no termination on lidar loss | 25 runs with an outage: all system nodes in every census row, base >= 29 msg/s during the outage | met |
+
+Other results:
+- Lidar dropout: LOST reported 0.39–0.48 s after the outage start (timeout 0.5 s). warehouse_dropout:
+  wrong correction after the 120 s outage in 8/10 runs (corrected error after it 2.5–9.5 m, INVALID
+  0.042–0.150 s after the lidar came back); 2/10 without (0.30, 0.16 m). room_dropout (60 s): no
+  alarm, corrected error after the outage 0.012–0.049 m.
+- Recovery (mapping from the checkpoint, 5 seeds): seed 4 no alarm (no switch); initial pose error
+  0.19–0.47 m, < 0.5 deg; RMSE after the switch 0.099 / 0.188 / 0.926 / 1.369 m; converged
+  (< 0.1 m for 5 s) after 2.0 / 30.5 / 342 / 386 s (seed 3 converged at 30 s and diverged again).
+- Gyro bias over 15 seeds: std 7.62e-5 rad/s (95 % CI 5.6e-5 – 1.2e-4), model 1.0e-4: consistent
+  (before the Step 4 fix the drift alone would have been 2.2e-4).
+- EKF consistency: over-confident in every room_loop / warehouse_loop run (inside 2-sigma 31.6 % /
+  12.7 % of samples, expected 86.5 %; end of run sigma_yaw 0.15 / 0.30 deg vs real 0.86 / 2.61 deg).
+- Warehouse error vs distance (mean over 15 seeds): base 0.29 m at 25 m -> 0.59–0.64 m at 150–175 m;
+  corrected 0.06–0.14 m along the whole lap.
+
+Verification:
+```
+$ ament_flake8 src/gnssd_tools
+37 files checked   (0 errors)
+$ ament_pep257 src/gnssd_tools
+No problems found
+$ colcon build --symlink-install && colcon test --packages-select gnssd_tools && colcon test-result --all
+Summary: 4 packages finished
+Summary: 23 tests, 0 errors, 0 failures, 0 skipped
+$ ls results/final/fig | wc -l
+20   (10 figures x PNG + PDF)
+```

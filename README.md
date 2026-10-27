@@ -60,6 +60,12 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `src/gnssd_tools/scripts/dropout_analysis.py`: errors before/during/after a lidar dropout, re-convergence time, plot.
 - `src/gnssd_tools/scripts/error_vs_distance.py`: position error vs distance from the start and vs travelled distance (TUM inputs).
 - `src/gnssd_tools/scripts/ekf_consistency.py`: compares the EKF covariance with its real errors (fraction inside 2-sigma, sigmas at the end).
+- `src/gnssd_tools/scripts/final_extract.py`: Step 7: reads every bag of the final series once into compact arrays (results/final_work/).
+- `src/gnssd_tools/scripts/final_metrics.py`: Step 7: one row of metrics per run -> results/final/runs.csv.
+- `src/gnssd_tools/scripts/final_summary.py`: Step 7: statistics, NFR evaluation and tables -> results/final/summary.md.
+- `src/gnssd_tools/scripts/final_figures.py`: Step 7: the 10 thesis figures (Ukrainian labels) -> results/final/fig/.
+- `src/gnssd_tools/scripts/loop_closure_error.py`: NFR-3 loop-closure error (difference of estimated and true displacement between two visits).
+- `results/final/`: Step 7 results: runs.csv, summary.md, fig/ (PNG 300 dpi + PDF).
 - `src/gnssd_tools/scripts/estimate_gyro_bias.py`: estimates the per-run gyro z bias from a bag (/imu_raw vs /ground_truth).
 - `src/gnssd_tools/scripts/map_to_png.py`: saves the last /map of a bag as a PNG (optionally with the ground truth).
 - `src/gnssd_tools/scripts/summarize_resources.py`: mean/max CPU and RSS per process and system from resources.csv.
