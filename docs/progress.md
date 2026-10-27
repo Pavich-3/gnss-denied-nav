@@ -1786,3 +1786,101 @@ polyline), so the two speeds do not drive exactly the same path. Lowest RTF of t
 `final_extract.py` now also stores graph_nodes (vertices of the last
 /slam_toolbox/graph_visualization); re-extracting all 70 experiments-v1 bags changed 0 values in
 runs.csv (only the columns graph_nodes and linear_speed were added).
+
+## Step 8 — Nav2 compatibility demonstration (NFR-9) (2026-10-27)
+
+Commit c193260. Nav2 is an EXTERNAL consumer; the system and stand configuration is unchanged
+(`git diff` of ekf.yaml, slam_toolbox*.yaml, sensor_monitor.yaml, map_manager.yaml, sim.launch.py,
+record.launch.py: empty). Added only: config/nav2_params.yaml, config/nav2_goals_{room,warehouse}.yaml,
+launch/nav2_demo.launch.py, rviz/nav2_{room,warehouse}.rviz, nav2_goal_sender_node (stand),
+scripts/xwd_to_png.py.
+
+### Setup
+- System: sim.launch.py with slam_mode:=localization, slam_map:=final_room_s1 / final_wh_s1 (the maps
+  of Step 7), start at the origin; no route driver.
+- Nav2 1.1.20 (Humble): only nav2_bringup's navigation_launch.py (controller, planner, smoother,
+  behaviors, bt_navigator, waypoint_follower, velocity_smoother, lifecycle manager). NO amcl, NO
+  map_server. Global frame map, map from the system's /map, odometry /odometry/filtered.
+- nav2_params.yaml = package params/nav2_params.yaml with 4 changes (each marked CHANGED):
+  | parameter | default | here | why |
+  |---|---|---|---|
+  | bt_navigator.odom_topic | /odom | /odometry/filtered | /odom is the stand's noisy wheel odometry; the system's odometry is the EKF output |
+  | controller_server.odom_topic | (implicit) odom | /odometry/filtered | same (DWB reads the robot speed) |
+  | velocity_smoother.odom_topic | odom | /odometry/filtered | unused in OPEN_LOOP; set so no Nav2 node points at the raw odometry |
+  | local/global_costmap robot_radius 0.22 | circle | footprint [[0.10,0.1425],[0.10,-0.1425],[-0.18,-0.1425],[-0.18,0.1425]] | the robot's outline from robot_params.xacro (chassis 0.28 x 0.22 shifted -0.04, wheels to abs(y) 0.1425) |
+  Controller DWB and planner NavFn, speeds (0.26 m/s, 1.0 rad/s), inflation 0.55 m, goal tolerance
+  0.25 m / 0.25 rad: package defaults.
+- RViz: rviz/nav2_<world>.rviz = nav2_default_view.rviz with RobotModel on, the AMCL particle cloud
+  off, top-down view of the whole world.
+
+### Interfaces Nav2 consumes from the system (no adapter, no remapping)
+| interface | type | producer (system) | consumer (Nav2) |
+|---|---|---|---|
+| /map | nav_msgs/OccupancyGrid (reliable, transient local) | slam_toolbox (localization on the saved map) | global_costmap (static layer) |
+| TF map -> odom | tf2_msgs/TFMessage on /tf | slam_toolbox | costmaps, planner, controller, bt_navigator (global frame map) |
+| TF odom -> base_link | tf2_msgs/TFMessage on /tf | ekf_filter_node | local_costmap (global frame odom), controller, behaviors |
+| /odometry/filtered | nav_msgs/Odometry | ekf_filter_node | bt_navigator, controller_server |
+| /scan | sensor_msgs/LaserScan | stand (scan_gate_node; the system's lidar input) | local_costmap, global_costmap (obstacle/voxel layers) |
+| /cmd_vel | geometry_msgs/Twist | velocity_smoother, behavior_server (Nav2) | stand: ros_gz_bridge -> DiffDrive |
+
+Live check during both recorded runs (`ros2 topic info <topic> -v --no-daemon`, full output in
+docs/step8/interfaces_{room,warehouse}.txt), identical in both worlds:
+```
+/tf publishers:  /ekf_filter_node, /robot_state_publisher, /slam_toolbox (2 broadcasters)   <- no Nav2 node
+/map:            pub /slam_toolbox;   sub /global_costmap/global_costmap, rviz, recorder
+/scan:           pub /scan_gate_node; sub /local_costmap/local_costmap, /global_costmap/global_costmap, ...
+/odometry/filtered: pub /ekf_filter_node; sub /bt_navigator, /controller_server, recorder
+/cmd_vel:        pub /velocity_smoother, /behavior_server (5 behaviour plugins); sub /ros_gz_bridge
+nodes matching amcl|map_server: 0
+```
+TF edges recorded in nav2_room_seed1_20261027_114827: /tf map->odom (8021), odom->base_link (4080), base_link->left/right
+wheel (2721 each); /tf_static base_link->chassis, caster, imu, lidar. No other frame, so no second
+map -> odom publisher. (tf2_monitor in Humble reports "<no authority available>": ROS 2 TF messages
+carry no publisher, hence the topic endpoint check.) RViz's Nav2 panel shows "Localization:
+inactive" because Nav2's own localization (amcl) is deliberately not started.
+
+### Goals (nav2_goal_sender_node, NavigateToPose one after another)
+Bags: nav2_room_seed1_20261027_114827, nav2_warehouse_seed1_20261027_115137 (run_info.yaml: commit c193260, allow_dirty false, startup_mode localization).
+"to goal" = ground truth vs goal; "estimate" = the system's map -> base_link vs ground truth at the
+end of the goal.
+| world | goal | result | time, s | path, m | to goal, m | to goal yaw, deg | estimate error, m | estimate yaw, deg |
+|---|---|---|---|---|---|---|---|---|
+| room | 1 far corner (7.8, 5.8) | SUCCEEDED | 43.33 | 10.878 | 0.218 | -3.7 | 0.027 | -0.12 |
+| room | 2 behind the island (3.5, 4.4) | SUCCEEDED | 27.81 | 5.303 | 0.223 | -3.77 | 0.018 | -0.11 |
+| room | 3 back to start (0.0, 0.0) | SUCCEEDED | 29.53 | 6.461 | 0.233 | -13.31 | 0.009 | -0.19 |
+| warehouse | 1 inside the aisle (8.0, 7.5) | SUCCEEDED | 50.32 | 12.533 | 0.333 | 13.53 | 0.093 | 0.32 |
+| warehouse | 2 far side (26.0, 14.8) | SUCCEEDED | 94.14 | 23.404 | 0.266 | -13.38 | 0.101 | -0.23 |
+| warehouse | 3 back to start (0.0, 0.0) | SUCCEEDED | 140.56 | 34.107 | 0.23 | -13.29 | 0.007 | 0.07 |
+
+All 6 goals SUCCEEDED. One recovery sequence, room goal 2: 7 s after the goal, bt_navigator logged
+"Timed out while waiting for action server to acknowledge goal request for follow_path" and a
+timed-out call to local_costmap/clear_entirely_local_costmap, together with "Behavior Tree tick rate
+100.00 was exceeded" warnings - the BT's 20 ms default_server_timeout (Humble default) missed under
+CPU load, not a localization or map problem. The BT ran its standard recovery (spin 1.57 rad,
+"Exceeded time allowance", then wait), re-planned and reached the goal (27.8 s; 18.8 s in the trial
+run). Warehouse: no recovery (0 spin/backup/wait in the log). Parameters left at the defaults (this
+is not an incompatibility with the system); log excerpt docs/step8/room_goal2_recovery_log.txt. The robot stops 0.22–0.33 m from the goal: Nav2's
+default goal checker accepts 0.25 m / 0.25 rad measured on the SYSTEM'S estimate, so the true
+distance = tolerance + localization error (e.g. warehouse goal 1: estimate 0.24 m from the goal,
+0.093 m from the truth -> 0.333 m true). Estimate error at the goals: room 0.9–2.7 cm, warehouse
+0.7–10.1 cm (largest inside the repetitive aisle and at the far side).
+
+Screenshots (RViz, map + global costmap + global path + robot, taken 10 s after each goal was
+accepted): docs/step8/rviz_room_goal{1,2,3}.png, docs/step8/rviz_warehouse_goal{1,2,3}.png
+(one per world for the thesis: rviz_room_goal1.png, rviz_warehouse_goal2.png).
+
+Trial runs before the commit (allow_dirty, scratch folders): same 6/6 SUCCEEDED; they showed that
+`xwd -name` needs the exact window title while RViz appends '*' -> the window is found by xwininfo.
+
+### Verification
+```
+$ colcon build --symlink-install
+Summary: 4 packages finished
+$ ament_flake8 src/gnssd_tools && ament_pep257 src/gnssd_tools
+(0 errors) / No problems found
+$ colcon test --packages-select gnssd_tools && colcon test-result --all
+Summary: 23 tests, 0 errors, 0 failures, 0 skipped
+```
+NFR-9 (ROS 2 Humble, Nav2 interfaces): met - the system builds and runs on Humble, and Nav2 1.1.20
+uses /map, TF map->odom->base_link, /odometry/filtered and /scan as published, without adapters or
+remappings, with no localization of its own.

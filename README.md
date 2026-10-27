@@ -12,7 +12,7 @@ Build with `source /opt/ros/humble/setup.bash && colcon build --symlink-install 
 - `LICENSE`: Apache-2.0 license text.
 - `.gitignore`: excludes colcon output, bags, generated maps and evaluation results.
 - `docs/progress.md`: per-step log with pasted verification output.
-- `docs/step8/`: Step 8 goal tables and RViz screenshots of the Nav2 demonstration.
+- `docs/step8/`: Step 8 goal tables, RViz screenshots, interface checks and the recovery log excerpt of the Nav2 demonstration.
 - `src/gnssd_description/`: robot URDF/xacro (`urdf/`), Gazebo worlds (`worlds/`) and sensor config (`config/`).
 - `src/gnssd_interfaces/`: service definitions of map_manager_node (SaveMap, SetMode, GetStatus).
 - `src/gnssd_bringup/`: launch files (`launch/`), parameter YAML (`config/`) and RViz configs (`rviz/`: sim.rviz, nav2_room.rviz, nav2_warehouse.rviz).

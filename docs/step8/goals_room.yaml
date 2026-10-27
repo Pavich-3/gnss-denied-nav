@@ -1,0 +1,67 @@
+goals:
+- goal: 1
+  name: far corner
+  target:
+  - 7.8
+  - 5.8
+  - 1.571
+  result: SUCCEEDED
+  time_s: 43.33
+  path_m: 10.878
+  true_final:
+  - 7.782
+  - 5.582
+  - 1.506
+  goal_pos_err_m: 0.218
+  goal_yaw_err_deg: -3.7
+  estimate_final:
+  - 7.796
+  - 5.56
+  - 1.504
+  estimate_pos_err_m: 0.027
+  estimate_yaw_err_deg: -0.12
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_room_goal1.xwd
+- goal: 2
+  name: behind the island
+  target:
+  - 3.5
+  - 4.4
+  - 3.142
+  result: SUCCEEDED
+  time_s: 27.81
+  path_m: 5.303
+  true_final:
+  - 3.723
+  - 4.387
+  - 3.076
+  goal_pos_err_m: 0.223
+  goal_yaw_err_deg: -3.77
+  estimate_final:
+  - 3.739
+  - 4.38
+  - 3.074
+  estimate_pos_err_m: 0.018
+  estimate_yaw_err_deg: -0.11
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_room_goal2.xwd
+- goal: 3
+  name: back to start
+  target:
+  - 0.0
+  - 0.0
+  - 0.0
+  result: SUCCEEDED
+  time_s: 29.53
+  path_m: 6.461
+  true_final:
+  - 0.116
+  - 0.203
+  - -0.232
+  goal_pos_err_m: 0.233
+  goal_yaw_err_deg: -13.31
+  estimate_final:
+  - 0.122
+  - 0.196
+  - -0.236
+  estimate_pos_err_m: 0.009
+  estimate_yaw_err_deg: -0.19
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_room_goal3.xwd

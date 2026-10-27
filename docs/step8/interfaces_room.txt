@@ -1,0 +1,677 @@
+### tf2_monitor map odom
+[INFO] [1793094549.689307766] [tf2_monitor_main]: Waiting for transform map ->  odom: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+[INFO] [1793094550.689550463] [tf2_monitor_main]: Waiting for transform map ->  odom: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+[INFO] [1793094551.689750423] [tf2_monitor_main]: Waiting for transform map ->  odom: Invalid frame ID "map" passed to canTransform argument target_frame - frame does not exist
+Gathering data on map -> odom for 10 seconds...
+
+
+
+RESULTS: for map to odom
+Chain is: map -> odom
+Net delay     avg = 3.41176e+08: max = 1.79309e+09
+
+Frames:
+Frame: odom, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+
+All Broadcasters:
+Node: <no authority available> 92.3588 Hz, Average Delay: 1.79309e+09 Max Delay: 1.79309e+09
+
+
+
+RESULTS: for map to odom
+Chain is: map -> odom
+Net delay     avg = 6.17436e+08: max = 1.79309e+09
+
+Frames:
+Frame: odom, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+
+All Broadcasters:
+Node: <no authority available> 92.2501 Hz, Average Delay: 1.79309e+09 Max Delay: 1.79309e+09
+[INFO] [1793094573.971128103] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+### tf2_monitor odom base_link
+[INFO] [1793094574.351629067] [tf2_monitor_main]: Waiting for transform odom ->  base_link: Invalid frame ID "odom" passed to canTransform argument target_frame - frame does not exist
+Gathering data on odom -> base_link for 10 seconds...
+
+
+
+RESULTS: for odom to base_link
+Chain is: base_link -> odom
+Net delay     avg = 3.41176e+08: max = 1.79309e+09
+
+Frames:
+Frame: base_link, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+Frame: odom, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+
+All Broadcasters:
+Node: <no authority available> 88.4546 Hz, Average Delay: 1.79309e+09 Max Delay: 1.79309e+09
+
+
+
+RESULTS: for odom to base_link
+Chain is: base_link -> odom
+Net delay     avg = 6.17436e+08: max = 1.79309e+09
+
+Frames:
+Frame: base_link, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+Frame: odom, published by <no authority available>, Average Delay: 1.79309e+09, Max Delay: 1.79309e+09
+
+All Broadcasters:
+Node: <no authority available> 92.9557 Hz, Average Delay: 1.79309e+09 Max Delay: 1.79309e+09
+[INFO] [1793094598.974743202] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+### ros2 node list
+/behavior_server
+/bt_navigator
+/bt_navigator_navigate_through_poses_rclcpp_node
+/bt_navigator_navigate_to_pose_rclcpp_node
+/controller_server
+/ekf_filter_node
+/global_costmap/global_costmap
+/imu_covariance_node
+/lifecycle_manager_navigation
+/local_costmap/local_costmap
+/loop_closure_monitor_node
+/map_manager_node
+/nav2_goal_sender_node
+/node_census_node
+/odom_noise_node
+/planner_server
+/resource_logger_node
+/robot_state_publisher
+/ros_gz_bridge
+/rosbag2_recorder
+/rviz
+/rviz_navigation_dialog_action_client
+/scan_gate_node
+/sensor_monitor_node
+/slam_toolbox
+/smoother_server
+/transform_listener_impl_557ba87cf020
+/transform_listener_impl_557eca9ecc10
+/transform_listener_impl_559d45ca2580
+/transform_listener_impl_55a5bd60cce0
+/transform_listener_impl_55bac0c42e10
+/transform_listener_impl_55c39c118960
+/transform_listener_impl_5639cbd29540
+/velocity_smoother
+/waypoint_follower
+### ros2 topic info /tf -v
+Type: tf2_msgs/msg/TFMessage
+
+Publisher count: 4
+
+Node name: slam_toolbox
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.1b.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: slam_toolbox
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.2b.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: robot_state_publisher
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.44.77.3f.df.00.00.00.00.00.00.13.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: ekf_filter_node
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.50.77.e8.14.00.00.00.00.00.00.19.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 11
+
+Node name: transform_listener_impl_557ba87cf020
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.19.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_557eca9ecc10
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.50.77.e8.14.00.00.00.00.00.00.16.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: sensor_monitor_node
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.55.77.86.81.00.00.00.00.00.00.16.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rosbag2_recorder
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.5f.77.7a.c2.00.00.00.00.00.00.1d.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_55c39c118960
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8a.78.df.23.00.00.00.00.00.00.3b.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_559d45ca2580
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8c.78.63.64.00.00.00.00.00.00.20.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_5639cbd29540
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8e.78.13.5e.00.00.00.00.00.00.3b.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_55bac0c42e10
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.20.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: bt_navigator
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.af.78.3e.d7.00.00.00.00.00.00.1e.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: transform_listener_impl_55a5bd60cce0
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.c1.78.8b.78.00.00.00.00.00.00.48.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: nav2_goal_sender_node
+Node namespace: /
+Topic type: tf2_msgs/msg/TFMessage
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.c6.78.35.9c.00.00.00.00.00.00.1a.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+### ros2 topic info /map -v
+Type: nav_msgs/msg/OccupancyGrid
+
+Publisher count: 1
+
+Node name: slam_toolbox
+Node namespace: /
+Topic type: nav_msgs/msg/OccupancyGrid
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.1d.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 4
+
+Node name: slam_toolbox
+Node namespace: /
+Topic type: nav_msgs/msg/OccupancyGrid
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.2a.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rosbag2_recorder
+Node namespace: /
+Topic type: nav_msgs/msg/OccupancyGrid
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.5f.77.7a.c2.00.00.00.00.00.00.18.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: global_costmap
+Node namespace: /global_costmap
+Topic type: nav_msgs/msg/OccupancyGrid
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8e.78.13.5e.00.00.00.00.00.00.3d.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rviz
+Node namespace: /
+Topic type: nav_msgs/msg/OccupancyGrid
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.c1.78.8b.78.00.00.00.00.00.00.4c.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+### ros2 topic info /scan -v
+Type: sensor_msgs/msg/LaserScan
+
+Publisher count: 1
+
+Node name: scan_gate_node
+Node namespace: /
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.4e.77.29.dc.00.00.00.00.00.00.11.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 6
+
+Node name: slam_toolbox
+Node namespace: /
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.38.78.22.b8.00.00.01.00.00.00.27.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: sensor_monitor_node
+Node namespace: /
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.55.77.86.81.00.00.00.00.00.00.13.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rosbag2_recorder
+Node namespace: /
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.5f.77.7a.c2.00.00.00.00.00.00.13.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: local_costmap
+Node namespace: /local_costmap
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8a.78.df.23.00.00.00.00.00.00.5e.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: global_costmap
+Node namespace: /global_costmap
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8e.78.13.5e.00.00.00.00.00.00.5d.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rviz
+Node namespace: /
+Topic type: sensor_msgs/msg/LaserScan
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.c1.78.8b.78.00.00.00.00.00.00.4b.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+### ros2 topic info /odometry/filtered -v
+Type: nav_msgs/msg/Odometry
+
+Publisher count: 1
+
+Node name: ekf_filter_node
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.50.77.e8.14.00.00.00.00.00.00.23.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 3
+
+Node name: rosbag2_recorder
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.5f.77.7a.c2.00.00.00.00.00.00.1b.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: controller_server
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.8a.78.df.23.00.00.00.00.00.00.53.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: bt_navigator
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.af.78.3e.d7.00.00.00.00.00.00.20.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+### ros2 topic info /cmd_vel -v
+Type: geometry_msgs/msg/Twist
+
+Publisher count: 6
+
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.2c.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.35.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.3e.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.47.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: behavior_server
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.ac.78.1d.5b.00.00.00.00.00.00.52.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: velocity_smoother
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: PUBLISHER
+GID: 01.0f.61.a4.b4.78.ef.7a.00.00.00.00.00.00.1e.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 2
+
+Node name: ros_gz_bridge
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.48.77.47.c8.00.00.00.00.00.00.19.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: rosbag2_recorder
+Node namespace: /
+Topic type: geometry_msgs/msg/Twist
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.61.a4.5f.77.7a.c2.00.00.00.00.00.00.24.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+

@@ -1,0 +1,23 @@
+[bt_navigator-20] [WARN] [1793094595.091644270] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-20] [WARN] [1793094599.702018476] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[controller_server-16] [INFO] [1793094599.898069712] [controller_server]: Reached the goal!
+[bt_navigator-20] [INFO] [1793094599.931000047] [bt_navigator]: Goal succeeded
+[nav2_goal_sender_node-25] [INFO] [1793094599.992205434] [nav2_goal_sender_node]: Goal 2/3: (3.5, 4.4, 3.1416)
+[bt_navigator-20] [INFO] [1793094599.993891441] [bt_navigator]: Begin navigating from current location (7.80, 5.56) to (3.50, 4.40)
+[bt_navigator-20] [WARN] [1793094600.624203792] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-20] [WARN] [1793094600.648371067] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[bt_navigator-20] [WARN] [1793094607.248627408] [bt_navigator_navigate_to_pose_rclcpp_node]: Timed out while waiting for action server to acknowledge goal request for follow_path
+[bt_navigator-20] [WARN] [1793094607.269636959] [bt_navigator_navigate_to_pose_rclcpp_node]: Node timed out while executing service call to local_costmap/clear_entirely_local_costmap.
+[bt_navigator-20] [WARN] [1793094607.291141900] [bt_navigator_navigate_to_pose_rclcpp_node]: Node timed out while executing service call to local_costmap/clear_entirely_local_costmap.
+[behavior_server-19] [INFO] [1793094607.294500897] [behavior_server]: Running spin
+[behavior_server-19] [INFO] [1793094607.297175790] [behavior_server]: Turning 1.57 for spin behavior.
+[behavior_server-19] [WARN] [1793094619.699921413] [behavior_server]: Exceeded time allowance before reaching the Spin goal - Exiting Spin
+[behavior_server-19] [WARN] [1793094619.700008098] [behavior_server]: spin failed
+[behavior_server-19] [WARN] [1793094619.700039810] [behavior_server]: [spin] [ActionServer] Aborting handle.
+[behavior_server-19] [INFO] [1793094619.716012164] [behavior_server]: Running wait
+[bt_navigator-20] [WARN] [1793094623.618922302] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!
+[behavior_server-19] [INFO] [1793094625.916185142] [behavior_server]: wait completed successfully
+[controller_server-16] [INFO] [1793094633.961503534] [controller_server]: Reached the goal!
+[bt_navigator-20] [INFO] [1793094633.995656813] [bt_navigator]: Goal succeeded
+[nav2_goal_sender_node-25] [INFO] [1793094634.022222300] [nav2_goal_sender_node]: Goal 2: {'goal': 2, 'name': 'behind the island', 'target': [3.5, 4.4, 3.142], 'result': 'SUCCEEDED', 'time_s': 27.81, 'path_m': 5.303, 'true_final': [3.723, 4.387, 3.076], 'goal_pos_err_m': 0.223, 'goal_yaw_err_deg': -3.77, 'estimate_final': [3.739, 4.38, 3.074], 'estimate_pos_err_m': 0.018, 'estimate_yaw_err_deg': -0.11, 'screenshot': '/home/pavich/Documents/diploma/docs/step8/rviz_room_goal2.xwd'}
+[bt_navigator-20] [WARN] [1793094637.164717173] [BehaviorTreeEngine]: Behavior Tree tick rate 100.00 was exceeded!

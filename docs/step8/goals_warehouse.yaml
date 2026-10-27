@@ -1,0 +1,67 @@
+goals:
+- goal: 1
+  name: inside the aisle
+  target:
+  - 8.0
+  - 7.5
+  - 0.0
+  result: SUCCEEDED
+  time_s: 50.32
+  path_m: 12.533
+  true_final:
+  - 7.682
+  - 7.4
+  - 0.236
+  goal_pos_err_m: 0.333
+  goal_yaw_err_deg: 13.53
+  estimate_final:
+  - 7.775
+  - 7.4
+  - 0.242
+  estimate_pos_err_m: 0.093
+  estimate_yaw_err_deg: 0.32
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_warehouse_goal1.xwd
+- goal: 2
+  name: far side
+  target:
+  - 26.0
+  - 14.8
+  - 1.571
+  result: SUCCEEDED
+  time_s: 94.14
+  path_m: 23.404
+  true_final:
+  - 25.799
+  - 14.625
+  - 1.337
+  goal_pos_err_m: 0.266
+  goal_yaw_err_deg: -13.38
+  estimate_final:
+  - 25.893
+  - 14.59
+  - 1.333
+  estimate_pos_err_m: 0.101
+  estimate_yaw_err_deg: -0.23
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_warehouse_goal2.xwd
+- goal: 3
+  name: back to start
+  target:
+  - 0.0
+  - 0.0
+  - 0.0
+  result: SUCCEEDED
+  time_s: 140.56
+  path_m: 34.107
+  true_final:
+  - 0.132
+  - 0.189
+  - -0.232
+  goal_pos_err_m: 0.23
+  goal_yaw_err_deg: -13.29
+  estimate_final:
+  - 0.139
+  - 0.186
+  - -0.231
+  estimate_pos_err_m: 0.007
+  estimate_yaw_err_deg: 0.07
+  screenshot: /home/pavich/Documents/diploma/docs/step8/rviz_warehouse_goal3.xwd
